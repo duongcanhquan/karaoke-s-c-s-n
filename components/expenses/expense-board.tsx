@@ -124,6 +124,7 @@ export function ExpenseBoard({
           {expenses.length === 0 ? (
             <p className="text-sm text-muted-foreground">Chưa có chi phí nào.</p>
           ) : (
+            <div className="w-full overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -146,6 +147,7 @@ export function ExpenseBoard({
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>

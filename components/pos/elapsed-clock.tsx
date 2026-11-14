@@ -34,7 +34,7 @@ export function ElapsedClock({
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <div>
-        <p className="text-xs text-muted-foreground">Elapsed</p>
+        <p className="text-xs text-muted-foreground">Thời gian</p>
         <p className="font-mono text-2xl font-semibold tabular-nums tracking-tight">
           {elapsed}
         </p>
@@ -42,20 +42,20 @@ export function ElapsedClock({
           <Button
             type="button"
             variant="outline"
-            className="mt-2 min-h-11"
+            className="mt-2 min-h-14 text-lg font-bold"
             onClick={() => setNow(Date.now())}
           >
-            Update time
+            Cập nhật giờ
           </Button>
         ) : null}
       </div>
       <div>
-        <p className="text-xs text-muted-foreground">Estimated room cost</p>
+        <p className="text-xs text-muted-foreground">Tiền phòng tạm tính</p>
         <p className="font-mono text-2xl font-semibold tabular-nums tracking-tight">
           {formatVnd(estimate)}
         </p>
         <p className="text-xs text-muted-foreground">
-          Chưa ghi vào hóa đơn cho đến khi checkout.
+          Chỉ ghi vào hóa đơn khi thanh toán.
         </p>
       </div>
     </div>

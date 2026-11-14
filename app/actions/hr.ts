@@ -4,9 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 import { roundMoney } from "@/lib/money";
 import type { ActionResult } from "@/lib/pos-types";
+import { isStaffRole } from "@/lib/session";
 
 function refresh() {
-  revalidatePath("/hr");
+  revalidatePath("/admin/hr");
 }
 
 export async function createStaff(input: {
@@ -19,7 +20,9 @@ export async function createStaff(input: {
   const pinCode = input.pinCode.trim();
 
   if (!name) return { ok: false, error: "Nhập tên nhân viên." };
-  if (!role) return { ok: false, error: "Nhập vai trò." };
+  if (!isStaffRole(role)) {
+    return { ok: false, error: "Chọn vai trò Quản lý, Thu ngân hoặc Nhân viên phục vụ." };
+  }
   if (!pinCode) return { ok: false, error: "Nhập mã PIN." };
 
   const supabase = await createClient();

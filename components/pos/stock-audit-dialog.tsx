@@ -77,7 +77,7 @@ export function StockAuditDialog({
       const consumed = consumedFromRemaining(item.initial_qty, item.ordered_qty, remainingQty);
 
       if (auditLine && !valid && !error) {
-        error = `Số còn lại của ${item.name} phải là số nguyên từ 0 đến ${available}.`;
+        error = `Số còn lại của ${item.name} phải từ 0 đến ${available}.`;
       }
       if (auditLine) audit.push({ itemId: item.id, remainingQty: valid ? parsed : remainingQty });
       if (valid || !auditLine) productTotal += consumed * item.price;
@@ -97,24 +97,24 @@ export function StockAuditDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Kiểm kho trước khi chốt {roomName}</DialogTitle>
+          <DialogTitle className="text-2xl font-bold">Kiểm đồ bàn giao · {roomName}</DialogTitle>
           <DialogDescription>
-            Với món minibar, nhập số còn lại trong phòng. Số đã dùng = có sẵn + gọi thêm − còn lại.
-            Món gọi thường tính hết số đã gọi.
+            Nhập số đồ còn lại chưa mở. Đã dùng = có sẵn + gọi thêm − còn lại.
           </DialogDescription>
         </DialogHeader>
         <ElapsedClock startTime={startTime} hourlyRate={hourlyRate} />
         {items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Hóa đơn không có món. Chỉ tính giờ phòng và nhân viên.</p>
+          <p className="text-sm text-muted-foreground">Không có món. Chỉ tính giờ phòng và phục vụ.</p>
         ) : (
-          <div className="max-h-80 overflow-auto">
+          <div className="max-h-80 w-full overflow-auto">
+            <div className="w-full overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Món</TableHead>
                   <TableHead className="text-right">Có sẵn</TableHead>
                   <TableHead className="text-right">Gọi thêm</TableHead>
-                  <TableHead className="text-right">Còn lại</TableHead>
+                  <TableHead className="text-right">Đồ còn lại (chưa mở)</TableHead>
                   <TableHead className="text-right">Đã dùng</TableHead>
                   <TableHead className="text-right">Thành tiền</TableHead>
                 </TableRow>
@@ -125,7 +125,7 @@ export function StockAuditDialog({
                     <TableCell>
                       {row.item.name}
                       {row.auditLine ? (
-                        <span className="mt-1 block text-xs text-muted-foreground">Minibar</span>
+                        <span className="mt-1 block text-xs text-muted-foreground">Tủ minibar</span>
                       ) : null}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
@@ -137,7 +137,7 @@ export function StockAuditDialog({
                     <TableCell className="text-right">
                       {row.auditLine ? (
                         <Input
-                          aria-label={`Số còn lại của ${row.item.name}`}
+                          aria-label={`Đồ còn lại của ${row.item.name}`}
                           type="number"
                           inputMode="numeric"
                           min={0}
@@ -150,14 +150,16 @@ export function StockAuditDialog({
                               [row.item.id]: event.target.value,
                             }))
                           }
-                          className="ml-auto min-h-11 w-24 text-right font-mono tabular-nums"
+                          className="ml-auto min-h-14 w-28 text-right text-lg font-bold font-mono tabular-nums"
                           aria-invalid={!row.valid}
                         />
                       ) : (
                         <span className="font-mono tabular-nums">0</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">{row.consumed}</TableCell>
+                    <TableCell className="text-right font-mono text-lg font-bold tabular-nums">
+                      {row.consumed}
+                    </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
                       {formatVnd(row.amount)}
                     </TableCell>
@@ -165,16 +167,17 @@ export function StockAuditDialog({
                 ))}
               </TableBody>
             </Table>
+            </div>
           </div>
         )}
-        <dl className="grid gap-1 text-sm">
+        <dl className="grid gap-2 text-base">
           <div className="flex justify-between gap-4">
             <dt className="text-muted-foreground">Món đã dùng</dt>
-            <dd className="font-mono tabular-nums">{formatVnd(review.productTotal)}</dd>
+            <dd className="font-mono font-bold tabular-nums">{formatVnd(review.productTotal)}</dd>
           </div>
           <div className="flex justify-between gap-4">
-            <dt className="text-muted-foreground">Nhân viên phục vụ</dt>
-            <dd className="font-mono tabular-nums">{formatVnd(staffTotal)}</dd>
+            <dt className="text-muted-foreground">Phục vụ</dt>
+            <dd className="font-mono font-bold tabular-nums">{formatVnd(staffTotal)}</dd>
           </div>
         </dl>
         {review.error ? (
@@ -182,23 +185,23 @@ export function StockAuditDialog({
             {review.error}
           </p>
         ) : null}
-        <DialogFooter>
+        <DialogFooter className="gap-2 sm:flex-col">
           <Button
             type="button"
-            variant="outline"
-            className="min-h-11"
-            disabled={pending}
-            onClick={() => onOpenChange(false)}
-          >
-            Quay lại
-          </Button>
-          <Button
-            type="button"
-            className="min-h-11"
+            className="h-16 w-full text-2xl font-bold"
             disabled={pending || Boolean(review.error)}
             onClick={() => onConfirm(review.audit)}
           >
-            {pending ? "Đang chốt" : "Chốt hóa đơn"}
+            {pending ? "Đang tính" : "Thanh toán"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-14 w-full text-lg font-bold"
+            disabled={pending}
+            onClick={() => onOpenChange(false)}
+          >
+            Hủy
           </Button>
         </DialogFooter>
       </DialogContent>

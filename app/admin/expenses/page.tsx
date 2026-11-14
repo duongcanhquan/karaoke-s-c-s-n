@@ -52,7 +52,7 @@ export default function ExpensesPage() {
   return (
     <section className="flex flex-col gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Expenses</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Chi phí</h1>
         <p className="text-sm text-muted-foreground">Ghi khoản chi và xem 50 dòng gần nhất.</p>
       </div>
       <Suspense fallback={<ExpensesFallback />}>

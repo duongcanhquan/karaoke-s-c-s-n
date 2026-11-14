@@ -143,7 +143,7 @@ function ProductFields({
           defaultChecked={product?.isMinibar ?? false}
           className="size-5 cursor-pointer accent-current"
         />
-        Minibar
+        Tủ minibar
       </label>
     </>
   );
@@ -191,7 +191,7 @@ export function ProductBoard({ products }: { products: MenuProduct[] }) {
       <Card>
         <CardHeader>
           <CardTitle>Thêm món</CardTitle>
-          <CardDescription>Đồ ăn, đồ uống hoặc dịch vụ. Bật Minibar nếu món được kê sẵn trong phòng.</CardDescription>
+          <CardDescription>Đồ ăn, đồ uống hoặc dịch vụ. Bật tủ minibar nếu món được kê sẵn trong phòng.</CardDescription>
         </CardHeader>
         <CardContent>
           <form
@@ -226,6 +226,7 @@ export function ProductBoard({ products }: { products: MenuProduct[] }) {
           {products.length === 0 ? (
             <p className="text-sm text-muted-foreground">Chưa có món.</p>
           ) : (
+            <div className="w-full overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -233,7 +234,7 @@ export function ProductBoard({ products }: { products: MenuProduct[] }) {
                   <TableHead>Nhóm</TableHead>
                   <TableHead className="text-right">Giá bán</TableHead>
                   <TableHead className="text-right">Tồn</TableHead>
-                  <TableHead>Minibar</TableHead>
+                  <TableHead>Tủ minibar</TableHead>
                   <TableHead>Sửa</TableHead>
                 </TableRow>
               </TableHeader>
@@ -254,7 +255,7 @@ export function ProductBoard({ products }: { products: MenuProduct[] }) {
                           type="checkbox"
                           checked={product.isMinibar}
                           disabled={pending}
-                          aria-label={`Minibar cho ${product.name}`}
+                          aria-label={`Tủ minibar cho ${product.name}`}
                           className="size-5 cursor-pointer accent-current"
                           onChange={(event) =>
                             run(
@@ -298,12 +299,13 @@ export function ProductBoard({ products }: { products: MenuProduct[] }) {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
 
       <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] w-full overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Sửa {editing?.name}</DialogTitle>
             <DialogDescription>Giá mới chỉ áp dụng cho món gọi sau lần sửa này.</DialogDescription>
@@ -311,7 +313,7 @@ export function ProductBoard({ products }: { products: MenuProduct[] }) {
           {editing ? (
             <form
               key={editing.id}
-              className="flex flex-col gap-3"
+              className="flex w-full flex-col gap-3"
               noValidate
               onSubmit={(event) => {
                 event.preventDefault();
@@ -328,7 +330,7 @@ export function ProductBoard({ products }: { products: MenuProduct[] }) {
               ) : null}
               <DialogFooter>
                 <Button type="button" variant="outline" className="min-h-11" onClick={() => setEditing(null)}>
-                  Quay lại
+                  Hủy
                 </Button>
                 <Button type="submit" className="min-h-11" disabled={pending}>
                   {pending ? "Đang lưu" : "Lưu"}
@@ -344,7 +346,7 @@ export function ProductBoard({ products }: { products: MenuProduct[] }) {
           <DialogHeader>
             <DialogTitle>Xóa {removing?.name}?</DialogTitle>
             <DialogDescription>
-              Món đang nằm trên hóa đơn hoặc minibar phòng sẽ không xóa được.
+              Món đang nằm trên hóa đơn hoặc tủ minibar phòng sẽ không xóa được.
             </DialogDescription>
           </DialogHeader>
           {formError ? (
@@ -354,7 +356,7 @@ export function ProductBoard({ products }: { products: MenuProduct[] }) {
           ) : null}
           <DialogFooter>
             <Button type="button" variant="outline" className="min-h-11" onClick={() => setRemoving(null)}>
-              Quay lại
+              Hủy
             </Button>
             <Button
               type="button"

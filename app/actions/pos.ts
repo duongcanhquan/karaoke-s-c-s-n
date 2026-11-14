@@ -8,7 +8,7 @@ import {
   staffCustomerCharge,
 } from "@/lib/billing";
 import { roundMoney } from "@/lib/money";
-import type { ActionResult, StockAuditLine } from "@/lib/pos-types";
+import type { ActionResult, PrepareCheckoutResult, StockAuditLine } from "@/lib/pos-types";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -36,9 +36,10 @@ function wholeNumber(value: number) {
 
 function refreshPos() {
   revalidatePath("/pos");
-  revalidatePath("/");
-  revalidatePath("/inventory");
-  revalidatePath("/hr");
+  revalidatePath("/admin");
+  revalidatePath("/admin/inventory");
+  revalidatePath("/admin/hr");
+  revalidatePath("/admin/rooms");
 }
 
 async function serviceTotal(supabase: Supabase, invoiceId: string) {
@@ -225,6 +226,90 @@ export async function addInvoiceItem(
   return { ok: true };
 }
 
+export async function adjustInvoiceItem(
+  invoiceId: string,
+  productId: string,
+  delta: number,
+): Promise<ActionResult> {
+  if (delta !== 1 && delta !== -1) return { ok: false, error: "Số lượng không hợp lệ." };
+
+  const supabase = await createClient();
+  const { data: invoice, error: invoiceError } = await activeInvoice(supabase, invoiceId);
+  const invoiceFailure = fail(invoiceError, "Không đọc được hóa đơn.");
+  if (invoiceFailure) return invoiceFailure;
+  if (!invoice) return { ok: false, error: "Hóa đơn không còn mở." };
+
+  const { data: product, error: productError } = await supabase
+    .from("products")
+    .select("id, selling_price, is_minibar_item")
+    .eq("id", productId)
+    .maybeSingle();
+  const productFailure = fail(productError, "Không đọc được món.");
+  if (productFailure) return productFailure;
+  if (!product) return { ok: false, error: "Không tìm thấy món." };
+
+  const minibar = Boolean(product.is_minibar_item);
+  const { data: existing, error: existingError } = await supabase
+    .from("invoice_items")
+    .select("id, initial_qty, ordered_qty, remaining_qty")
+    .eq("invoice_id", invoiceId)
+    .eq("product_id", productId)
+    .maybeSingle();
+  const existingFailure = fail(existingError, "Không đọc được dòng hóa đơn.");
+  if (existingFailure) return existingFailure;
+
+  if (!existing) {
+    if (delta < 0) return { ok: false, error: "Món chưa có trên hóa đơn." };
+    const { error } = await supabase.from("invoice_items").insert({
+      invoice_id: invoiceId,
+      product_id: productId,
+      initial_qty: 0,
+      ordered_qty: 1,
+      remaining_qty: minibar ? 1 : 0,
+      price: Number(product.selling_price),
+    });
+    const insertFailure = fail(error, "Không thêm được món.");
+    if (insertFailure) return insertFailure;
+  } else {
+    const initial = Number(existing.initial_qty);
+    const ordered = Number(existing.ordered_qty) + delta;
+    if (ordered < 0) return { ok: false, error: "Không giảm dưới số đã gọi thêm." };
+    if (ordered === 0 && initial === 0) {
+      const { error } = await supabase.from("invoice_items").delete().eq("id", existing.id);
+      const deleteFailure = fail(error, "Không xóa được món.");
+      if (deleteFailure) return deleteFailure;
+    } else {
+      const available = initial + ordered;
+      const remaining = minibar
+        ? Math.min(available, Math.max(0, Number(existing.remaining_qty) + delta))
+        : 0;
+      const { error } = await supabase
+        .from("invoice_items")
+        .update({ ordered_qty: ordered, remaining_qty: remaining })
+        .eq("id", existing.id);
+      const updateFailure = fail(error, "Không sửa được số lượng.");
+      if (updateFailure) return updateFailure;
+    }
+  }
+
+  const totals = await serviceTotal(supabase, invoiceId);
+  if (totals.error) return { ok: false, error: totals.error.message };
+
+  const { error: totalError } = await supabase
+    .from("invoices")
+    .update({
+      service_total: totals.total,
+      grand_total: roundMoney(Number(invoice.room_total) + totals.total),
+    })
+    .eq("id", invoiceId)
+    .eq("status", "ACTIVE");
+  const totalFailure = fail(totalError, "Không cập nhật được tổng tiền.");
+  if (totalFailure) return totalFailure;
+
+  revalidatePath("/pos");
+  return { ok: true };
+}
+
 export async function assignStaffBooking(input: {
   invoiceId: string;
   staffId: string;
@@ -300,16 +385,11 @@ export async function removeStaffBooking(bookingId: string): Promise<ActionResul
   return { ok: true };
 }
 
-export async function processCheckout(
+async function applyAudit(
+  supabase: Supabase,
   invoiceId: string,
   audit: StockAuditLine[],
 ): Promise<ActionResult> {
-  const supabase = await createClient();
-  const { data: invoice, error: invoiceError } = await activeInvoice(supabase, invoiceId);
-  const invoiceFailure = fail(invoiceError, "Không đọc được hóa đơn.");
-  if (invoiceFailure) return invoiceFailure;
-  if (!invoice) return { ok: false, error: "Hóa đơn không còn mở." };
-
   const { data: lines, error: lineError } = await supabase
     .from("invoice_items")
     .select("id, initial_qty, ordered_qty, products(name, is_minibar_item)")
@@ -355,26 +435,30 @@ export async function processCheckout(
     if (updateFailure) return updateFailure;
   }
 
+  return { ok: true };
+}
+
+async function computeCheckoutTotals(supabase: Supabase, invoiceId: string) {
+  const { data: invoice, error: invoiceError } = await activeInvoice(supabase, invoiceId);
+  if (invoiceError) return { error: invoiceError.message };
+  if (!invoice) return { error: "Hóa đơn không còn mở." };
+
   const { data: room, error: roomError } = await supabase
     .from("rooms")
-    .select("hourly_rate")
+    .select("name, hourly_rate")
     .eq("id", invoice.room_id)
     .maybeSingle();
-
-  const roomFailure = fail(roomError, "Không đọc được giá phòng.");
-  if (roomFailure) return roomFailure;
-  if (!room) return { ok: false, error: "Không tìm thấy phòng của hóa đơn." };
+  if (roomError) return { error: roomError.message };
+  if (!room) return { error: "Không tìm thấy phòng của hóa đơn." };
 
   const totals = await serviceTotal(supabase, invoiceId);
-  if (totals.error) return { ok: false, error: totals.error.message };
+  if (totals.error) return { error: totals.error.message };
 
   const { data: bookings, error: bookingError } = await supabase
     .from("invoice_staff_bookings")
     .select("hours_worked, customer_rate")
     .eq("invoice_id", invoiceId);
-
-  const bookingFailure = fail(bookingError, "Không đọc được nhân viên phục vụ.");
-  if (bookingFailure) return bookingFailure;
+  if (bookingError) return { error: bookingError.message };
 
   const staffTotal = roundMoney(
     (bookings ?? []).reduce(
@@ -388,14 +472,81 @@ export async function processCheckout(
   const elapsedMs = Math.max(0, end.getTime() - new Date(invoice.start_time).getTime());
   const roomTotal = roundMoney((elapsedMs / 3_600_000) * Number(room.hourly_rate));
   const serviceTotalAmount = roundMoney(totals.total + staffTotal);
+  const grandTotal = roundMoney(roomTotal + serviceTotalAmount);
+
+  return {
+    error: null as string | null,
+    invoice,
+    roomName: String(room.name),
+    end,
+    roomTotal,
+    serviceTotalAmount,
+    grandTotal,
+  };
+}
+
+export async function prepareCheckout(
+  invoiceId: string,
+  audit: StockAuditLine[],
+): Promise<PrepareCheckoutResult> {
+  const supabase = await createClient();
+  const applied = await applyAudit(supabase, invoiceId, audit);
+  if (!applied.ok) return applied;
+
+  const totals = await computeCheckoutTotals(supabase, invoiceId);
+  if (totals.error || !totals.invoice) return { ok: false, error: totals.error ?? "Không tính được hóa đơn." };
+
+  const { data: settings, error: settingsError } = await supabase
+    .from("shop_settings")
+    .select("bank_bin, bank_account_number, bank_account_name")
+    .order("id")
+    .limit(1)
+    .maybeSingle();
+
+  if (settingsError) return { ok: false, error: settingsError.message };
+  if (!settings) {
+    return { ok: false, error: "Chưa có cấu hình ngân hàng. Vào Quản trị → Cài đặt." };
+  }
+  if (!String(settings.bank_account_number).trim() || !String(settings.bank_account_name).trim()) {
+    return { ok: false, error: "Chưa nhập số tài khoản hoặc tên chủ tài khoản." };
+  }
+
+  const { error: saveError } = await supabase
+    .from("invoices")
+    .update({
+      room_total: totals.roomTotal,
+      service_total: totals.serviceTotalAmount,
+      grand_total: totals.grandTotal,
+    })
+    .eq("id", invoiceId)
+    .eq("status", "ACTIVE");
+
+  if (saveError) return { ok: false, error: saveError.message };
+
+  refreshPos();
+  return {
+    ok: true,
+    invoiceId,
+    roomName: totals.roomName,
+    grandTotal: totals.grandTotal,
+    bankBin: String(settings.bank_bin),
+    bankAccountNumber: String(settings.bank_account_number),
+    bankAccountName: String(settings.bank_account_name),
+  };
+}
+
+export async function confirmPaid(invoiceId: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const totals = await computeCheckoutTotals(supabase, invoiceId);
+  if (totals.error || !totals.invoice) return { ok: false, error: totals.error ?? "Không chốt được hóa đơn." };
 
   const { data: paid, error: payError } = await supabase
     .from("invoices")
     .update({
-      end_time: end.toISOString(),
-      room_total: roomTotal,
-      service_total: serviceTotalAmount,
-      grand_total: roundMoney(roomTotal + serviceTotalAmount),
+      end_time: totals.end.toISOString(),
+      room_total: totals.roomTotal,
+      service_total: totals.serviceTotalAmount,
+      grand_total: totals.grandTotal,
       status: "PAID",
     })
     .eq("id", invoiceId)
@@ -403,16 +554,16 @@ export async function processCheckout(
     .select("id")
     .maybeSingle();
 
-  const payFailure = fail(payError, "Không chốt được hóa đơn.");
+  const payFailure = fail(payError, "Không xác nhận thanh toán.");
   if (payFailure) return payFailure;
   if (!paid) return { ok: false, error: "Hóa đơn đã được chốt." };
 
   const { error: roomUpdateError } = await supabase
     .from("rooms")
     .update({ status: "CLEANING" })
-    .eq("id", invoice.room_id);
+    .eq("id", totals.invoice.room_id);
 
-  const roomUpdateFailure = fail(roomUpdateError, "Đã chốt hóa đơn nhưng chưa chuyển phòng sang dọn.");
+  const roomUpdateFailure = fail(roomUpdateError, "Đã nhận tiền nhưng chưa chuyển phòng sang dọn.");
   if (roomUpdateFailure) return roomUpdateFailure;
 
   refreshPos();
@@ -434,6 +585,7 @@ export async function markRoomAvailable(roomId: string): Promise<ActionResult> {
   if (!data) return { ok: false, error: "Phòng không ở trạng thái đang dọn." };
 
   revalidatePath("/pos");
-  revalidatePath("/");
+  revalidatePath("/admin");
+  revalidatePath("/admin/rooms");
   return { ok: true };
 }

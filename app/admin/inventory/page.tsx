@@ -53,13 +53,14 @@ async function InventoryTable() {
       <CardHeader>
         <CardTitle>Tồn kho</CardTitle>
         <CardDescription>
-          Tồn giảm theo số đã dùng khi hóa đơn chuyển sang PAID. Món dịch vụ không trừ kho.
+          Tồn giảm theo số đã dùng khi hóa đơn đã thanh toán. Món dịch vụ không trừ kho.
         </CardDescription>
       </CardHeader>
       <CardContent>
         {products.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Chưa có món trong bảng products.</p>
+          <p className="text-sm text-muted-foreground">Chưa có món trong kho.</p>
         ) : (
+          <div className="w-full overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -67,7 +68,7 @@ async function InventoryTable() {
                 <TableHead>Nhóm</TableHead>
                 <TableHead className="text-right">Giá vốn</TableHead>
                 <TableHead className="text-right">Giá bán</TableHead>
-                <TableHead>Minibar</TableHead>
+                <TableHead>Tủ minibar</TableHead>
                 <TableHead className="text-right">Tồn</TableHead>
               </TableRow>
             </TableHeader>
@@ -90,6 +91,7 @@ async function InventoryTable() {
               ))}
             </TableBody>
           </Table>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -100,7 +102,7 @@ export default function InventoryPage() {
   return (
     <section className="flex flex-col gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Inventory</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Kho hàng</h1>
         <p className="text-sm text-muted-foreground">Danh sách món và số lượng đang còn.</p>
       </div>
       <Suspense fallback={<InventoryFallback />}>

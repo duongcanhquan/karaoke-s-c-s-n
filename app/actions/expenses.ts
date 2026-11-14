@@ -35,7 +35,7 @@ export async function logExpense(input: {
 
   if (error) return { ok: false, error: error.message };
 
-  revalidatePath("/expenses");
-  revalidatePath("/");
+  revalidatePath("/admin/expenses");
+  revalidatePath("/admin");
   return { ok: true };
 }

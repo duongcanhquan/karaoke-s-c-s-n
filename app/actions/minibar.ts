@@ -31,7 +31,7 @@ export async function saveRoomMinibar(input: {
   if (productError) return { ok: false, error: productError.message };
   if (!product) return { ok: false, error: "Không tìm thấy món." };
   if (!product.is_minibar_item) {
-    return { ok: false, error: "Chỉ gán được món đã bật Minibar trong Menu." };
+    return { ok: false, error: "Chỉ gán được món đã bật tủ minibar trong Thực đơn." };
   }
 
   const { data: existing, error: existingError } = await supabase

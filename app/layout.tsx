@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Fira_Code, Inter, Playfair_Display } from "next/font/google";
-import { AppShell } from "@/components/app-shell";
 import { Toaster } from "@/components/ui/toast";
 import "./globals.css";
 
@@ -23,7 +22,7 @@ const firaCode = Fira_Code({
 });
 
 export const metadata: Metadata = {
-  title: "Karaoke Management",
+  title: "Quản lý Karaoke",
   description: "Quản lý phòng, hóa đơn và ca làm của quán karaoke",
 };
 
@@ -34,7 +33,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${inter.variable} ${playfair.variable} ${firaCode.variable} h-full antialiased`}
     >
       <body className="min-h-dvh bg-background text-foreground">
-        <AppShell>{children}</AppShell>
+        {children}
         <Toaster />
       </body>
     </html>

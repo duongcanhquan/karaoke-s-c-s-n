@@ -46,7 +46,7 @@ export function MinibarBoard({
         <CardHeader>
           <CardTitle>Gán minibar</CardTitle>
           <CardDescription>
-            Số lượng này được đưa vào hóa đơn với tồn đầu khi Start Room. Chỉ hiện món đã bật Minibar.
+            Số lượng này vào hóa đơn khi mở phòng. Chỉ hiện món đã bật tủ minibar.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -148,7 +148,7 @@ export function MinibarBoard({
 
       <Card>
         <CardHeader>
-          <CardTitle>Minibar theo phòng</CardTitle>
+          <CardTitle>Tủ minibar theo phòng</CardTitle>
           <CardDescription>
             Gán lại cùng phòng và món để đổi số lượng. Phòng đang mở không đổi hóa đơn hiện tại.
           </CardDescription>
@@ -157,6 +157,7 @@ export function MinibarBoard({
           {setups.length === 0 ? (
             <p className="text-sm text-muted-foreground">Chưa gán món minibar cho phòng nào.</p>
           ) : (
+            <div className="w-full overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -205,6 +206,7 @@ export function MinibarBoard({
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>

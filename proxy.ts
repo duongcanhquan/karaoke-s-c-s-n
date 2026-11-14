@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { decodeSession, homeForRole, SESSION_COOKIE } from "@/lib/session";
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -35,6 +36,28 @@ export async function proxy(request: NextRequest) {
   // Refreshes the auth cookie. Do not add logic between creating the client
   // and this call, or the refreshed cookie can be dropped.
   await supabase.auth.getClaims();
+
+  const session = decodeSession(request.cookies.get(SESSION_COOKIE)?.value);
+  const path = request.nextUrl.pathname;
+
+  function redirectTo(pathname: string) {
+    const url = request.nextUrl.clone();
+    url.pathname = pathname;
+    url.search = "";
+    const redirect = NextResponse.redirect(url);
+    supabaseResponse.cookies.getAll().forEach((cookie) => {
+      redirect.cookies.set(cookie);
+    });
+    return redirect;
+  }
+
+  if (path === "/hr" || path.startsWith("/hr/")) return redirectTo("/admin/hr");
+  if (path === "/expenses" || path.startsWith("/expenses/")) return redirectTo("/admin/expenses");
+  if (path === "/inventory" || path.startsWith("/inventory/")) return redirectTo("/admin/inventory");
+
+  if (!session && path !== "/") return redirectTo("/");
+  if (session && path === "/") return redirectTo(homeForRole(session.role));
+  if (session && session.role !== "ADMIN" && path.startsWith("/admin")) return redirectTo("/pos");
 
   return supabaseResponse;
 }

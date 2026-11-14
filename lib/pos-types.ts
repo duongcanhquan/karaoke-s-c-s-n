@@ -59,3 +59,16 @@ export type StockAuditLine = {
 };
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
+
+export type PaymentCheckout = {
+  invoiceId: string;
+  roomName: string;
+  grandTotal: number;
+  bankBin: string;
+  bankAccountNumber: string;
+  bankAccountName: string;
+};
+
+export type PrepareCheckoutResult =
+  | ({ ok: true } & PaymentCheckout)
+  | { ok: false; error: string };

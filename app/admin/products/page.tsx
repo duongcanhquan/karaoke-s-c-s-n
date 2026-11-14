@@ -55,9 +55,9 @@ export default function AdminProductsPage() {
   return (
     <section className="flex flex-col gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Menu</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Thực đơn</h1>
         <p className="text-sm text-muted-foreground">
-          Thêm, sửa, xóa món và đánh dấu món thuộc minibar.
+          Thêm, sửa, xóa món và đánh dấu món thuộc tủ minibar.
         </p>
       </div>
       <Suspense fallback={<ProductsFallback />}>

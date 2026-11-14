@@ -79,7 +79,7 @@ export default function AdminMinibarPage() {
   return (
     <section className="flex flex-col gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Minibar</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Tủ minibar</h1>
         <p className="text-sm text-muted-foreground">
           Gán món và số lượng sẵn trong từng phòng.
         </p>

@@ -18,7 +18,7 @@ export type ProductInput = {
 function refresh() {
   revalidatePath("/admin/products");
   revalidatePath("/admin/minibar");
-  revalidatePath("/inventory");
+  revalidatePath("/admin/inventory");
   revalidatePath("/pos");
 }
 
@@ -41,7 +41,7 @@ function parseProduct(input: ProductInput):
   const stockQuantity = Number(input.stockQuantity);
 
   if (!name) return { error: "Nhập tên món." };
-  if (!isProductCategory(category)) return { error: "Chọn nhóm FOOD, DRINK hoặc SERVICE." };
+  if (!isProductCategory(category)) return { error: "Chọn nhóm Đồ ăn, Đồ uống hoặc Dịch vụ." };
   if (!Number.isFinite(costPrice) || costPrice < 0) return { error: "Giá vốn phải là số không âm." };
   if (!Number.isFinite(sellingPrice) || sellingPrice < 0) {
     return { error: "Giá bán phải là số không âm." };

@@ -15,7 +15,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
+import { selectClass } from "@/lib/field-class";
 import { formatVnd } from "@/lib/money";
+import { roleLabel, staffRoles } from "@/lib/session";
 
 export type StaffMember = {
   id: string;
@@ -94,7 +96,7 @@ export function ShiftBoard({
         <CardHeader>
           <CardTitle>Lương và hoa hồng</CardTitle>
           <CardDescription>
-            Lương ca đã chốt cộng tiền nhân viên nhận từ booking trên hóa đơn PAID.
+            Lương ca đã chốt cộng tiền nhân viên nhận từ booking trên hóa đơn đã thanh toán.
             Lợi nhuận quán là phần khách trả trừ phần trả nhân viên.
           </CardDescription>
         </CardHeader>
@@ -110,12 +112,13 @@ export function ShiftBoard({
               Chưa có lương ca hoặc hoa hồng từ hóa đơn đã thanh toán.
             </p>
           ) : (
+            <div className="w-full overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Nhân viên</TableHead>
                   <TableHead className="text-right">Lương ca</TableHead>
-                  <TableHead className="text-right">Hoa hồng booking</TableHead>
+                  <TableHead className="text-right">Hoa hồng phục vụ</TableHead>
                   <TableHead className="text-right">Tổng nhận</TableHead>
                 </TableRow>
               </TableHeader>
@@ -136,6 +139,7 @@ export function ShiftBoard({
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -177,7 +181,13 @@ export function ShiftBoard({
                 <label htmlFor="staff-role" className="text-sm font-medium">
                   Vai trò <span aria-hidden="true">*</span>
                 </label>
-                <Input id="staff-role" name="role" required defaultValue="Nhân viên" className={fieldClass} />
+                <select id="staff-role" name="role" required defaultValue="SERVICE_STAFF" className={selectClass}>
+                  {staffRoles.map((role) => (
+                    <option key={role} value={role}>
+                      {roleLabel[role]}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="flex flex-col gap-1">
                 <label htmlFor="staff-pin" className="text-sm font-medium">
@@ -238,7 +248,7 @@ export function ShiftBoard({
                   </option>
                   {staff.map((member) => (
                     <option key={member.id} value={member.id}>
-                      {member.name} · {member.role}
+                      {member.name} · {roleLabel[member.role as keyof typeof roleLabel] ?? member.role}
                     </option>
                   ))}
                 </select>
@@ -264,7 +274,7 @@ export function ShiftBoard({
                 </p>
               ) : null}
               <Button type="submit" className="min-h-11" disabled={pending || staff.length === 0}>
-                Clock In
+                Vào ca
               </Button>
             </form>
           </CardContent>
@@ -274,12 +284,13 @@ export function ShiftBoard({
       <Card>
         <CardHeader>
           <CardTitle>Ca làm</CardTitle>
-          <CardDescription>Clock Out tính lương theo số giờ thực tế.</CardDescription>
+          <CardDescription>Ra ca tính lương theo số giờ thực tế.</CardDescription>
         </CardHeader>
         <CardContent>
           {shifts.length === 0 ? (
             <p className="text-sm text-muted-foreground">Chưa có ca nào.</p>
           ) : (
+            <div className="w-full overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -316,7 +327,7 @@ export function ShiftBoard({
                             run(() => clockOut(shift.id), "Đã ra ca", setShiftError)
                           }
                         >
-                          Clock Out
+                          Ra ca
                         </Button>
                       )}
                     </TableCell>
@@ -324,6 +335,7 @@ export function ShiftBoard({
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>

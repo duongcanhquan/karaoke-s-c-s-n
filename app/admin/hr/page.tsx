@@ -114,9 +114,9 @@ export default function HrPage() {
   return (
     <section className="flex flex-col gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">HR</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Lương & Nhân sự</h1>
         <p className="text-sm text-muted-foreground">
-          Vào ca, ra ca, và cộng hoa hồng từ booking phục vụ.
+          Vào ca, ra ca, và cộng hoa hồng từ lịch phục vụ.
         </p>
       </div>
       <Suspense fallback={<HrFallback />}>
