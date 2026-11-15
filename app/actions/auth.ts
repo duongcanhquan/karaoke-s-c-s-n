@@ -70,8 +70,12 @@ export async function login(
   const storedName = normalizeName(String(data.name));
   const role = String(data.role);
   if (!isStaffRole(role)) {
+    return { error: "Tài khoản cần vai trò Quản lý hoặc Thu ngân." };
+  }
+  if (role === "SERVICE_STAFF") {
     return {
-      error: "Tài khoản cần vai trò Quản lý, Thu ngân hoặc Nhân viên phục vụ.",
+      error:
+        "Nhân viên phục vụ không đăng nhập được. Chỉ dùng để gọi vào phòng trên quầy thu ngân.",
     };
   }
 

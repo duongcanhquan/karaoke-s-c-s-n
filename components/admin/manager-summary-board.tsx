@@ -185,7 +185,7 @@ export function ManagerSummaryBoard() {
 
       {summary ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <Card>
               <CardHeader className="pb-2">
                 <CardDescription>Tổng lương ca</CardDescription>
@@ -195,6 +195,17 @@ export function ManagerSummaryBoard() {
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground">
                 {summary.closedShiftCount} ca đã chốt
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Lương tháng</CardDescription>
+                <CardTitle className="font-mono text-2xl tabular-nums">
+                  {formatVnd(summary.monthlyPay)}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">
+                Chỉ cộng khi xem theo tháng
               </CardContent>
             </Card>
             <Card>
@@ -216,7 +227,7 @@ export function ManagerSummaryBoard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground">
-                Lương ca + hoa hồng
+                Ca + tháng + hoa hồng
               </CardContent>
             </Card>
             <Card>
@@ -247,6 +258,7 @@ export function ManagerSummaryBoard() {
                         <TableHead>Nhân viên</TableHead>
                         <TableHead className="text-right">Ca</TableHead>
                         <TableHead className="text-right">Lương ca</TableHead>
+                        <TableHead className="text-right">Lương tháng</TableHead>
                         <TableHead className="text-right">Hoa hồng</TableHead>
                         <TableHead className="text-right">Tổng nhận</TableHead>
                       </TableRow>
@@ -260,6 +272,9 @@ export function ManagerSummaryBoard() {
                           </TableCell>
                           <TableCell className="text-right font-mono tabular-nums">
                             {formatVnd(line.shiftPay)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono tabular-nums">
+                            {formatVnd(line.monthlyPay)}
                           </TableCell>
                           <TableCell className="text-right font-mono tabular-nums">
                             {formatVnd(line.bookingPay)}

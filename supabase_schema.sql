@@ -19,11 +19,16 @@ create table if not exists public.users (
   customer_rate numeric(12, 2) not null default 0,
   staff_payout_rate numeric(12, 2) not null default 0,
   default_hourly_salary numeric(12, 2) not null default 0,
+  pay_type text not null default 'SHIFT',
+  monthly_salary numeric(12, 2) not null default 0,
+  require_clock_in boolean not null default false,
   constraint users_pin_code_key unique (pin_code),
   constraint users_customer_rate_check check (customer_rate >= 0),
   constraint users_staff_payout_rate_check check (staff_payout_rate >= 0),
   constraint users_rate_order_check check (customer_rate >= staff_payout_rate),
-  constraint users_default_hourly_salary_check check (default_hourly_salary >= 0)
+  constraint users_default_hourly_salary_check check (default_hourly_salary >= 0),
+  constraint users_pay_type_check check (pay_type in ('SHIFT', 'MONTHLY')),
+  constraint users_monthly_salary_check check (monthly_salary >= 0)
 );
 
 create table if not exists public.rooms (
@@ -130,15 +135,47 @@ create table if not exists public.expenses (
   constraint expenses_amount_check check (amount >= 0)
 );
 
+create table if not exists public.shift_templates (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  start_time time not null,
+  end_time time not null,
+  pay_mode text not null default 'HOURLY',
+  default_amount numeric(12, 2) not null default 0,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  constraint shift_templates_name_key unique (name),
+  constraint shift_templates_pay_mode_check check (pay_mode in ('HOURLY', 'FIXED')),
+  constraint shift_templates_default_amount_check check (default_amount >= 0)
+);
+
+create table if not exists public.staff_shift_rates (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  template_id uuid not null,
+  amount numeric(12, 2) not null,
+  constraint staff_shift_rates_user_id_fkey
+    foreign key (user_id) references public.users (id) on delete cascade,
+  constraint staff_shift_rates_template_id_fkey
+    foreign key (template_id) references public.shift_templates (id) on delete cascade,
+  constraint staff_shift_rates_user_template_key unique (user_id, template_id),
+  constraint staff_shift_rates_amount_check check (amount >= 0)
+);
+
 create table if not exists public.shifts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
+  template_id uuid,
   start_time timestamptz not null default now(),
   end_time timestamptz,
+  pay_mode text not null default 'HOURLY',
   hourly_salary numeric(12, 2) not null,
   total_salary numeric(12, 2),
   constraint shifts_user_id_fkey
     foreign key (user_id) references public.users (id) on delete restrict,
+  constraint shifts_template_id_fkey
+    foreign key (template_id) references public.shift_templates (id) on delete set null,
+  constraint shifts_pay_mode_check check (pay_mode in ('HOURLY', 'FIXED', 'ATTENDANCE')),
   constraint shifts_hourly_salary_check check (hourly_salary >= 0),
   constraint shifts_total_salary_check check (total_salary is null or total_salary >= 0),
   constraint shifts_time_order_check check (end_time is null or end_time >= start_time)

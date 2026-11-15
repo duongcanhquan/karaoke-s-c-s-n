@@ -27,10 +27,13 @@ export function canAccessAdmin(role: StaffRole) {
   return role === "ADMIN";
 }
 
-/** Quản lý cũng làm thu ngân được — POS luôn mở cho mọi role đã đăng nhập. */
+/** Chỉ Quản lý / Thu ngân đăng nhập. Nhân viên phục vụ chỉ gọi vào phòng, không login. */
+export function canLogin(role: StaffRole) {
+  return role === "ADMIN" || role === "CASHIER";
+}
+
 export function canAccessPos(role: StaffRole) {
-  void role;
-  return true;
+  return canLogin(role);
 }
 
 export function isWorkMode(value: string | undefined | null): value is WorkMode {
@@ -57,6 +60,12 @@ export function resolveLoginDestination(
     return { ok: true as const, path: "/admin", mode: "admin" as WorkMode };
   }
   if (asked === "pos") {
+    if (!canAccessPos(role)) {
+      return {
+        ok: false as const,
+        error: "Nhân viên phục vụ không đăng nhập được. Chỉ Quản lý / Thu ngân.",
+      };
+    }
     return { ok: true as const, path: "/pos", mode: "pos" as WorkMode };
   }
   const mode: WorkMode =
@@ -73,6 +82,7 @@ export function decodeSession(value: string | undefined | null): SessionUser | n
   try {
     const parsed = JSON.parse(decodeURIComponent(value)) as Partial<SessionUser>;
     if (!parsed.id || !parsed.name || !parsed.role || !isStaffRole(parsed.role)) return null;
+    if (!canLogin(parsed.role)) return null;
     return { id: parsed.id, name: parsed.name, role: parsed.role };
   } catch {
     return null;

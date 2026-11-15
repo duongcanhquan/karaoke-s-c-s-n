@@ -43,11 +43,11 @@ export default function LoginPage() {
               Quản lý
             </Button>
           </div>
-          {destination === "admin" ? (
-            <p className="text-sm text-muted-foreground">
-              Chỉ tài khoản Quản lý mới vào được màn hình quản trị.
-            </p>
-          ) : null}
+          <p className="text-sm text-muted-foreground">
+            {destination === "admin"
+              ? "Chỉ tài khoản Quản lý mới vào được màn hình quản trị."
+              : "Chỉ Quản lý / Thu ngân đăng nhập. Nhân viên phục vụ không cần tài khoản."}
+          </p>
           <input type="hidden" name="destination" value={destination} />
         </fieldset>
 

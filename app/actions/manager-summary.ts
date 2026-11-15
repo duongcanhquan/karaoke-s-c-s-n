@@ -25,6 +25,7 @@ export type ManagerSummary = {
   label: string;
   longLabel: string;
   shiftPay: number;
+  monthlyPay: number;
   bookingPay: number;
   salaryTotal: number;
   expenseTotal: number;
@@ -37,6 +38,7 @@ export type ManagerSummary = {
     userId: string;
     name: string;
     shiftPay: number;
+    monthlyPay: number;
     bookingPay: number;
     total: number;
     shiftCount: number;
@@ -179,6 +181,7 @@ export async function getManagerSummary(
       userId: string;
       name: string;
       shiftPay: number;
+      monthlyPay: number;
       bookingPay: number;
       total: number;
       shiftCount: number;
@@ -190,6 +193,7 @@ export async function getManagerSummary(
       userId,
       name,
       shiftPay: 0,
+      monthlyPay: 0,
       bookingPay: 0,
       total: 0,
       shiftCount: 0,
@@ -216,6 +220,31 @@ export async function getManagerSummary(
     staff.bookingPay = roundMoney(staff.bookingPay + amount);
   }
 
+  // Lương tháng chỉ cộng khi xem theo tháng (tránh nhân đôi theo tuần/ngày).
+  let monthlyPay = 0;
+  if (period === "month") {
+    const monthlyStaff = await supabase
+      .from("users")
+      .select("id, name, display_name, role, pay_type, monthly_salary")
+      .eq("pay_type", "MONTHLY");
+    if (!monthlyStaff.error) {
+      for (const member of monthlyStaff.data ?? []) {
+        if (String(member.role) === "SERVICE_STAFF") continue;
+        const amount = roundMoney(Number(member.monthly_salary) || 0);
+        if (amount <= 0) continue;
+        monthlyPay = roundMoney(monthlyPay + amount);
+        const staff = row(
+          String(member.id),
+          relatedDisplayName(
+            { name: member.name, display_name: member.display_name },
+            String(member.name),
+          ),
+        );
+        staff.monthlyPay = amount;
+      }
+    }
+  }
+
   const expenses = (expensesData ?? []).map((expense) => ({
     id: String(expense.id),
     title: String(expense.title),
@@ -224,12 +253,12 @@ export async function getManagerSummary(
     date: String(expense.date),
   }));
   const expenseTotal = roundMoney(expenses.reduce((sum, item) => sum + item.amount, 0));
-  const salaryTotal = roundMoney(shiftPay + bookingPay);
+  const salaryTotal = roundMoney(shiftPay + monthlyPay + bookingPay);
 
   const staffPayroll = [...payrollMap.values()]
     .map((item) => ({
       ...item,
-      total: roundMoney(item.shiftPay + item.bookingPay),
+      total: roundMoney(item.shiftPay + item.monthlyPay + item.bookingPay),
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "vi"));
 
@@ -241,6 +270,7 @@ export async function getManagerSummary(
       label,
       longLabel,
       shiftPay,
+      monthlyPay,
       bookingPay,
       salaryTotal,
       expenseTotal,

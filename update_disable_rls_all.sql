@@ -14,6 +14,8 @@ declare
     'invoice_items',
     'expenses',
     'shifts',
+    'shift_templates',
+    'staff_shift_rates',
     'room_minibar_setup',
     'invoice_staff_bookings',
     'shop_settings',
