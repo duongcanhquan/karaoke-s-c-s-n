@@ -30,6 +30,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { hoursBetweenClockTimes, staffCustomerCharge } from "@/lib/billing";
 import { labelCategory, productCategories, type ProductCategory } from "@/lib/catalog";
+import {
+  buildCheckoutPreview,
+  EMPTY_SHOP_SETTINGS,
+  type ShopCheckoutSettings,
+} from "@/lib/checkout-preview";
 import { formatVnd } from "@/lib/money";
 import type {
   ActionResult,
@@ -137,6 +142,7 @@ export function PosKiosk({
   staff: staffProp,
   bills: billsProp,
   roomSetups,
+  shopSettings = EMPTY_SHOP_SETTINGS,
 }: {
   cashierName: string;
   canManage?: boolean;
@@ -145,13 +151,18 @@ export function PosKiosk({
   staff: StaffOption[];
   bills: Record<string, PosBill>;
   roomSetups: Record<string, RoomSetupItem[]>;
+  shopSettings?: ShopCheckoutSettings;
 }) {
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState(false);
   const [rooms, setRooms] = useState(roomsProp);
   const [staff, setStaff] = useState(staffProp);
   const [bills, setBills] = useState(billsProp);
+  const [roomsSync, setRoomsSync] = useState(roomsProp);
+  const [staffSync, setStaffSync] = useState(staffProp);
+  const [billsSync, setBillsSync] = useState(billsProp);
   const [openRoomId, setOpenRoomId] = useState<string | null>(null);
+  const [setupForRoom, setSetupForRoom] = useState<string | null>(null);
   const [category, setCategory] = useState<ProductCategory | "ALL">("ALL");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
@@ -173,25 +184,23 @@ export function PosKiosk({
   const [serviceRate, setServiceRate] = useState("");
   const [servicePayout, setServicePayout] = useState("");
 
-  useEffect(() => {
+  // Sync server snapshot into local optimistic state (React “adjust state during render”).
+  if (roomsProp !== roomsSync) {
+    setRoomsSync(roomsProp);
     setRooms(roomsProp);
-  }, [roomsProp]);
-
-  useEffect(() => {
+  }
+  if (staffProp !== staffSync) {
+    setStaffSync(staffProp);
     setStaff(staffProp);
-  }, [staffProp]);
-
-  useEffect(() => {
+  }
+  if (billsProp !== billsSync) {
+    setBillsSync(billsProp);
     setBills(billsProp);
-  }, [billsProp]);
-
-  useEffect(() => {
-    if (!serviceStaffId) return;
-    const member = staff.find((item) => item.id === serviceStaffId);
-    if (!member) return;
-    setServiceRate(String(member.customerRate || ""));
-    setServicePayout(String(member.staffPayoutRate || ""));
-  }, [serviceStaffId, staff]);
+  }
+  if (openRoomId !== setupForRoom) {
+    setSetupForRoom(openRoomId);
+    setSetupChecked(false);
+  }
 
   const room = rooms.find((item) => item.id === openRoomId) ?? null;
   const bill = room ? bills[room.id] ?? null : null;
@@ -200,10 +209,6 @@ export function PosKiosk({
   const payBill = payRoom ? bills[payRoom.id] ?? null : null;
   const setupItems = room ? roomSetups[room.id] ?? [] : [];
   const locked = pending || busy || checkoutBusy;
-
-  useEffect(() => {
-    setSetupChecked(false);
-  }, [openRoomId]);
 
   // Prefetch heavy checkout UI once a room is open so pay/revenue feels instant.
   useEffect(() => {
@@ -430,28 +435,24 @@ export function PosKiosk({
   }
 
   async function closeCleaningNow(roomId: string, roomName: string) {
+    // Optimistic — don't lock the whole POS on a one-row status update.
     setRooms((current) =>
       current.map((item) =>
         item.id === roomId ? { ...item, status: "AVAILABLE" as const } : item,
       ),
     );
     setOpenRoomId(null);
-    setBusy(true);
-    try {
-      const result = await markRoomAvailable(roomId);
-      if (!result.ok) {
-        setRooms((current) =>
-          current.map((item) =>
-            item.id === roomId ? { ...item, status: "CLEANING" as const } : item,
-          ),
-        );
-        notify(result, `${roomName} đã trống`);
-        return;
-      }
-      toast.add({ title: `${roomName} đã trống`, type: "success" });
-    } finally {
-      setBusy(false);
+    const result = await markRoomAvailable(roomId);
+    if (!result.ok) {
+      setRooms((current) =>
+        current.map((item) =>
+          item.id === roomId ? { ...item, status: "CLEANING" as const } : item,
+        ),
+      );
+      notify(result, `${roomName} đã trống`);
+      return;
     }
+    toast.add({ title: `${roomName} đã trống`, type: "success" });
   }
 
   function requestReduce(invoiceId: string, productId: string, refreshPayment = false) {
@@ -490,11 +491,28 @@ export function PosKiosk({
   }
 
   async function runPrepareCheckout(audit: StockAuditLine[]) {
-    if (!payBill) return;
+    if (!payBill || !payRoom) return;
+
+    // Open payment instantly with client totals; sync authoritative server result after.
+    const preview = buildCheckoutPreview({
+      invoiceId: payBill.id,
+      room: payRoom,
+      startTime: payBill.startTime,
+      items: payBill.items,
+      bookings: payBill.bookings,
+      audit,
+      settings: shopSettings,
+    });
+    setCheckoutOpen(false);
+    setPayment(preview);
+    setPaymentOpen(true);
     setCheckoutBusy(true);
     try {
       const result = await prepareCheckout(payBill.id, audit);
       if (!result.ok) {
+        setPaymentOpen(false);
+        setPayment(null);
+        setCheckoutOpen(true);
         toast.add({
           title: "Không tính được tiền",
           description: result.error,
@@ -504,10 +522,11 @@ export function PosKiosk({
       }
       const { ok: _ok, ...checkout } = result;
       void _ok;
-      setCheckoutOpen(false);
       setPayment(checkout);
-      setPaymentOpen(true);
     } catch (error) {
+      setPaymentOpen(false);
+      setPayment(null);
+      setCheckoutOpen(true);
       toast.add({
         title: "Không tính được tiền",
         description: error instanceof Error ? error.message : "Lỗi không xác định",
@@ -897,7 +916,13 @@ export function PosKiosk({
                         <select
                           value={serviceStaffId}
                           disabled={locked || staff.length === 0}
-                          onChange={(event) => setServiceStaffId(event.target.value)}
+                          onChange={(event) => {
+                            const id = event.target.value;
+                            setServiceStaffId(id);
+                            const member = staff.find((item) => item.id === id);
+                            setServiceRate(String(member?.customerRate || ""));
+                            setServicePayout(String(member?.staffPayoutRate || ""));
+                          }}
                           className="min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-base"
                         >
                           <option value="">
@@ -1074,6 +1099,7 @@ export function PosKiosk({
 
       {paymentOpen && payment ? (
       <PaymentDialog
+        key={payment.invoiceId}
         open={paymentOpen}
         onOpenChange={(open) => {
           setPaymentOpen(open);

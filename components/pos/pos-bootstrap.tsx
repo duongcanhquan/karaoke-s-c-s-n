@@ -7,6 +7,10 @@ import {
   invalidatePosClientCache,
   loadPosSnapshot,
 } from "@/lib/pos-client-data";
+import {
+  EMPTY_SHOP_SETTINGS,
+  type ShopCheckoutSettings,
+} from "@/lib/checkout-preview";
 import type { Product, Room, RoomSetupItem, StaffOption } from "@/lib/pos-types";
 
 export function PosBootstrap({
@@ -25,6 +29,8 @@ export function PosBootstrap({
   const [roomSetups, setRoomSetups] = useState<Record<string, RoomSetupItem[]>>(
     {},
   );
+  const [shopSettings, setShopSettings] =
+    useState<ShopCheckoutSettings>(EMPTY_SHOP_SETTINGS);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,6 +44,7 @@ export function PosBootstrap({
         setStaff(snapshot.staff);
         setBills(snapshot.bills);
         setRoomSetups(snapshot.roomSetups);
+        setShopSettings(snapshot.shopSettings);
         setError(null);
         setReady(true);
 
@@ -89,6 +96,7 @@ export function PosBootstrap({
       staff={staff}
       bills={bills}
       roomSetups={roomSetups}
+      shopSettings={shopSettings}
     />
   );
 }

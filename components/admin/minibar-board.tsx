@@ -1,9 +1,21 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { removeRoomMinibar, saveRoomMinibar } from "@/app/actions/minibar";
+import {
+  removeRoomMinibar,
+  saveRoomMinibar,
+  updateRoomMinibarQuantity,
+} from "@/app/actions/minibar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -36,6 +48,8 @@ export function MinibarBoard({
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<MinibarSetup | null>(null);
+  const [editQty, setEditQty] = useState("");
   const ready = rooms.length > 0 && products.length > 0;
 
   return (
@@ -64,7 +78,11 @@ export function MinibarBoard({
                 });
                 if (!result.ok) {
                   setError(result.error);
-                  toast.add({ title: "Không thực hiện được", description: result.error, type: "error" });
+                  toast.add({
+                    title: "Không thực hiện được",
+                    description: result.error,
+                    type: "error",
+                  });
                   return;
                 }
                 form.reset();
@@ -131,7 +149,7 @@ export function MinibarBoard({
                 className="min-h-11"
               />
             </div>
-            {error ? (
+            {error && !editing ? (
               <p role="alert" className="text-sm text-destructive">
                 {error}
               </p>
@@ -147,7 +165,7 @@ export function MinibarBoard({
         <CardHeader>
           <CardTitle>Tủ minibar theo phòng</CardTitle>
           <CardDescription>
-            Gán lại cùng phòng và món để đổi số lượng. Phòng đang mở không đổi hóa đơn hiện tại.
+            Sửa số lượng hoặc gỡ món. Phòng đang mở không đổi hóa đơn hiện tại.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -155,57 +173,151 @@ export function MinibarBoard({
             <p className="text-sm text-muted-foreground">Chưa gán món minibar cho phòng nào.</p>
           ) : (
             <div className="w-full overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Phòng</TableHead>
-                  <TableHead>Món</TableHead>
-                  <TableHead className="text-right">Số lượng</TableHead>
-                  <TableHead>Gỡ</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {setups.map((setup) => (
-                  <TableRow key={setup.id}>
-                    <TableCell>{setup.roomName}</TableCell>
-                    <TableCell>{setup.productName}</TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {setup.defaultQuantity}
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="min-h-11"
-                        disabled={pending}
-                        onClick={() => {
-                          setError(null);
-                          startTransition(async () => {
-                            const result = await removeRoomMinibar(setup.id);
-                            if (!result.ok) {
-                              setError(result.error);
-                              toast.add({
-                                title: "Không thực hiện được",
-                                description: result.error,
-                                type: "error",
-                              });
-                              return;
-                            }
-                            toast.add({ title: "Đã gỡ khỏi phòng", type: "success" });
-                          });
-                        }}
-                      >
-                        Gỡ
-                      </Button>
-                    </TableCell>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Phòng</TableHead>
+                    <TableHead>Món</TableHead>
+                    <TableHead className="text-right">Số lượng</TableHead>
+                    <TableHead>Thao tác</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {setups.map((setup) => (
+                    <TableRow key={setup.id}>
+                      <TableCell>{setup.roomName}</TableCell>
+                      <TableCell>{setup.productName}</TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {setup.defaultQuantity}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="min-h-11"
+                            disabled={pending}
+                            onClick={() => {
+                              setError(null);
+                              setEditing(setup);
+                              setEditQty(String(setup.defaultQuantity));
+                            }}
+                          >
+                            Sửa
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            className="min-h-11"
+                            disabled={pending}
+                            onClick={() => {
+                              setError(null);
+                              startTransition(async () => {
+                                const result = await removeRoomMinibar(setup.id);
+                                if (!result.ok) {
+                                  setError(result.error);
+                                  toast.add({
+                                    title: "Không thực hiện được",
+                                    description: result.error,
+                                    type: "error",
+                                  });
+                                  return;
+                                }
+                                toast.add({ title: "Đã gỡ khỏi phòng", type: "success" });
+                              });
+                            }}
+                          >
+                            Gỡ
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={editing !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditing(null);
+            setEditQty("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Sửa số lượng minibar</DialogTitle>
+            <DialogDescription>
+              {editing
+                ? `${editing.roomName} · ${editing.productName}`
+                : "Đổi số lượng mặc định khi mở phòng."}
+            </DialogDescription>
+          </DialogHeader>
+          <label htmlFor="edit-minibar-qty" className="flex flex-col gap-1 text-sm font-medium">
+            Số lượng <span aria-hidden="true">*</span>
+            <Input
+              id="edit-minibar-qty"
+              type="number"
+              inputMode="numeric"
+              min="1"
+              step="1"
+              value={editQty}
+              onChange={(event) => setEditQty(event.target.value)}
+              className="min-h-11"
+            />
+          </label>
+          {error ? (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11"
+              onClick={() => {
+                setEditing(null);
+                setEditQty("");
+              }}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              className="min-h-11"
+              disabled={pending || !editing || !editQty.trim()}
+              onClick={() => {
+                if (!editing) return;
+                const qty = Number(editQty);
+                setError(null);
+                startTransition(async () => {
+                  const result = await updateRoomMinibarQuantity(editing.id, qty);
+                  if (!result.ok) {
+                    setError(result.error);
+                    toast.add({
+                      title: "Không thực hiện được",
+                      description: result.error,
+                      type: "error",
+                    });
+                    return;
+                  }
+                  setEditing(null);
+                  setEditQty("");
+                  toast.add({ title: "Đã cập nhật số lượng", type: "success" });
+                });
+              }}
+            >
+              {pending ? "Đang lưu" : "Lưu"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

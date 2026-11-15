@@ -22,7 +22,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AdminTabsList, AdminTabsTrigger } from "@/components/admin/admin-tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { selectClass } from "@/lib/field-class";
 import { formatVnd } from "@/lib/money";
@@ -267,17 +268,11 @@ export function ShiftBoard({
       }}
       className="gap-4"
     >
-      <TabsList className="h-auto w-full flex-wrap justify-start gap-1 p-1 sm:w-fit">
-        <TabsTrigger value="staff" className="min-h-11 px-4 text-base font-bold">
-          Nhân viên
-        </TabsTrigger>
-        <TabsTrigger value="shifts" className="min-h-11 px-4 text-base font-bold">
-          Ca làm
-        </TabsTrigger>
-        <TabsTrigger value="payroll" className="min-h-11 px-4 text-base font-bold">
-          Lương
-        </TabsTrigger>
-      </TabsList>
+      <AdminTabsList>
+        <AdminTabsTrigger value="staff">Nhân viên</AdminTabsTrigger>
+        <AdminTabsTrigger value="shifts">Ca làm</AdminTabsTrigger>
+        <AdminTabsTrigger value="payroll">Lương</AdminTabsTrigger>
+      </AdminTabsList>
 
       <TabsContent value="staff" className="mt-0">
       <Card>
@@ -299,7 +294,7 @@ export function ShiftBoard({
               run(() => createStaff(input), "Đã thêm nhân viên", setStaffError, () => form.reset());
             }}
           >
-            <p className="text-sm font-semibold text-slate-900">Thêm nhân viên</p>
+            <p className="text-sm font-semibold text-foreground">Thêm nhân viên</p>
             <StaffFields idPrefix="create" />
             {staffError && !editing && !removing ? (
               <p role="alert" className="text-sm text-destructive">

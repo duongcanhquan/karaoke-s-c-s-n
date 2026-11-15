@@ -36,14 +36,14 @@ export function PaymentDialog({
   onAdjustLine: (productId: string, delta: 1 | -1) => void;
   onConfirmPaid: (input: Omit<ConfirmPaymentInput, "invoiceId">) => void;
 }) {
+  // Parent remounts via key=invoiceId when a new bill opens.
   const [method, setMethod] = useState<PaymentMethod>("QR");
-  const [cashInput, setCashInput] = useState("");
+  const [cashInput, setCashInput] = useState(() =>
+    payment ? String(Math.round(payment.grandTotal / 2)) : "",
+  );
 
   useEffect(() => {
     if (!open || !payment) return;
-    // Only reset when opening a bill — not when totals change after +/- lines.
-    setMethod("QR");
-    setCashInput(String(Math.round(payment.grandTotal / 2)));
     savePrinterPrefsLocal({
       shopName: payment.shopName || "Karaoke",
       shopAddress: payment.shopAddress || "",
@@ -54,7 +54,7 @@ export function PaymentDialog({
       printerCopies: Math.min(3, Math.max(1, payment.printerCopies || 1)),
       printerName: payment.printerName || "",
     });
-  }, [open, payment?.invoiceId]);
+  }, [open, payment]);
 
   const amounts = useMemo(() => {
     if (!payment) return { cash: 0, transfer: 0 };

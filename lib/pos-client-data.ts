@@ -1,5 +1,9 @@
 import { createClient } from "@/utils/supabase/client";
 import { staffCustomerCharge } from "@/lib/billing";
+import {
+  EMPTY_SHOP_SETTINGS,
+  type ShopCheckoutSettings,
+} from "@/lib/checkout-preview";
 import { displayLabel, relatedDisplayName } from "@/lib/display-name";
 import { isMissingDisplayNameError, looseRows } from "@/lib/supabase-errors";
 import type {
@@ -19,6 +23,7 @@ export type PosSnapshot = {
   staff: StaffOption[];
   bills: Record<string, PosBill>;
   roomSetups: Record<string, RoomSetupItem[]>;
+  shopSettings: ShopCheckoutSettings;
   fetchedAt: number;
 };
 
@@ -64,14 +69,24 @@ async function fetchPosSnapshot(): Promise<PosSnapshot> {
     .select("id, name, display_name, role, customer_rate, staff_payout_rate")
     .eq("role", "SERVICE_STAFF")
     .order("name");
+  const settingsPromise = supabase
+    .from("shop_settings")
+    .select(
+      "bank_bin, bank_account_number, bank_account_name, shop_name, shop_address, shop_phone, receipt_footer, printer_paper_mm, printer_auto_print, printer_copies, printer_name",
+    )
+    .order("id")
+    .limit(1)
+    .maybeSingle();
 
-  const [roomsResult, invoiceResult, productsRaw, setupRaw, staffRaw] = await Promise.all([
-    roomsPromise,
-    invoicesPromise,
-    productsPromise,
-    setupPromise,
-    staffPromise,
-  ]);
+  const [roomsResult, invoiceResult, productsRaw, setupRaw, staffRaw, settingsRaw] =
+    await Promise.all([
+      roomsPromise,
+      invoicesPromise,
+      productsPromise,
+      setupPromise,
+      staffPromise,
+      settingsPromise,
+    ]);
 
   let staffResult = looseRows(staffRaw);
   if (staffResult.error && isMissingDisplayNameError(staffResult.error.message)) {
@@ -292,12 +307,47 @@ async function fetchPosSnapshot(): Promise<PosSnapshot> {
     };
   });
 
+  let shopSettings = EMPTY_SHOP_SETTINGS;
+  if (!settingsRaw.error && settingsRaw.data) {
+    const row = settingsRaw.data;
+    const paper = Number(row.printer_paper_mm) === 58 ? 58 : 80;
+    shopSettings = {
+      bankBin: String(row.bank_bin ?? ""),
+      bankAccountNumber: String(row.bank_account_number ?? ""),
+      bankAccountName: String(row.bank_account_name ?? ""),
+      shopName: String(row.shop_name ?? "Karaoke"),
+      shopAddress: String(row.shop_address ?? ""),
+      shopPhone: String(row.shop_phone ?? ""),
+      receiptFooter: String(row.receipt_footer ?? "Cảm ơn quý khách"),
+      printerPaperMm: paper,
+      printerAutoPrint: Boolean(row.printer_auto_print),
+      printerCopies: Math.min(3, Math.max(1, Number(row.printer_copies) || 1)),
+      printerName: String(row.printer_name ?? ""),
+    };
+  } else if (settingsRaw.error) {
+    const basic = await supabase
+      .from("shop_settings")
+      .select("bank_bin, bank_account_number, bank_account_name")
+      .order("id")
+      .limit(1)
+      .maybeSingle();
+    if (!basic.error && basic.data) {
+      shopSettings = {
+        ...EMPTY_SHOP_SETTINGS,
+        bankBin: String(basic.data.bank_bin ?? ""),
+        bankAccountNumber: String(basic.data.bank_account_number ?? ""),
+        bankAccountName: String(basic.data.bank_account_name ?? ""),
+      };
+    }
+  }
+
   return {
     rooms,
     products,
     staff,
     bills,
     roomSetups,
+    shopSettings,
     fetchedAt: Date.now(),
   };
 }

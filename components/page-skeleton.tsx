@@ -1,16 +1,15 @@
 export function PageSkeleton({ label = "Đang tải" }: { label?: string }) {
   return (
-    <div className="flex flex-col gap-4" aria-busy="true" aria-live="polite">
+    <div className="flex flex-col gap-5" aria-busy="true" aria-live="polite">
       <p className="sr-only">{label}</p>
-      <div className="h-8 w-48 max-w-full rounded-lg bg-muted motion-safe:animate-pulse" />
-      <div className="h-4 w-72 max-w-full rounded-lg bg-muted motion-safe:animate-pulse" />
-      <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {Array.from({ length: 6 }, (_, index) => (
-          <div
-            key={index}
-            className="h-28 rounded-xl bg-muted motion-safe:animate-pulse"
-          />
-        ))}
+      <div className="flex flex-col gap-2">
+        <div className="h-8 w-44 max-w-full rounded-lg bg-muted motion-safe:animate-pulse" />
+        <div className="h-4 w-72 max-w-full rounded-lg bg-muted/80 motion-safe:animate-pulse" />
+      </div>
+      <div className="h-12 w-full max-w-md rounded-xl bg-muted motion-safe:animate-pulse" />
+      <div className="grid gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
+        <div className="h-72 rounded-xl bg-muted motion-safe:animate-pulse" />
+        <div className="h-72 rounded-xl bg-muted motion-safe:animate-pulse" />
       </div>
     </div>
   );

@@ -42,7 +42,7 @@ function shiftKey(period: RevenuePeriod, key: string, delta: number) {
 export function ManagerSummaryBoard() {
   const [pending, startTransition] = useTransition();
   const [period, setPeriod] = useState<RevenuePeriod>("day");
-  const [periodKey, setPeriodKey] = useState("");
+  const [periodKey, setPeriodKey] = useState(() => defaultKey("day"));
   const [summary, setSummary] = useState<ManagerSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,9 +63,7 @@ export function ManagerSummaryBoard() {
   }
 
   useEffect(() => {
-    const key = defaultKey("day");
-    setPeriodKey(key);
-    load("day", key);
+    load("day", defaultKey("day"));
   }, []);
 
   function exportWork() {

@@ -2,7 +2,8 @@
 
 import type { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AdminTabsList, AdminTabsTrigger } from "@/components/admin/admin-tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 
 export function CatalogTabs({
   active,
@@ -26,14 +27,10 @@ export function CatalogTabs({
       }}
       className="gap-4"
     >
-      <TabsList className="h-auto w-full flex-wrap justify-start gap-1 p-1 sm:w-fit">
-        <TabsTrigger value="menu" className="min-h-11 px-4 text-base font-bold">
-          Thực đơn
-        </TabsTrigger>
-        <TabsTrigger value="inventory" className="min-h-11 px-4 text-base font-bold">
-          Nhập hàng / Kho
-        </TabsTrigger>
-      </TabsList>
+      <AdminTabsList>
+        <AdminTabsTrigger value="menu">Thực đơn</AdminTabsTrigger>
+        <AdminTabsTrigger value="inventory">Nhập hàng / Kho</AdminTabsTrigger>
+      </AdminTabsList>
       <TabsContent value="menu" className="mt-0">
         {active === "menu" ? menuPanel : null}
       </TabsContent>

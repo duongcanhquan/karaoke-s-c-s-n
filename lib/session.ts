@@ -28,7 +28,8 @@ export function canAccessAdmin(role: StaffRole) {
 }
 
 /** Quản lý cũng làm thu ngân được — POS luôn mở cho mọi role đã đăng nhập. */
-export function canAccessPos(_role: StaffRole) {
+export function canAccessPos(role: StaffRole) {
+  void role;
   return true;
 }
 

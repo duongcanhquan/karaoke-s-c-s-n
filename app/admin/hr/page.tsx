@@ -40,26 +40,42 @@ async function HrContent({ active }: { active: HrTab }) {
   const { startIso, endIso } = vietnamMonthBounds(monthKey);
   const supabase = createDb();
 
-  const fullStaff = await supabase
-    .from("users")
-    .select(
-      "id, name, display_name, role, pin_code, customer_rate, staff_payout_rate, default_hourly_salary",
-    )
-    .order("name");
-
-  const staffResult = fullStaff.error
-    ? await supabase.from("users").select("id, name, role, pin_code").order("name")
-    : fullStaff;
-
-  let shiftResult = looseRows(
-    await supabase
+  // Parallel first pass — sequential round-trips made HR feel frozen.
+  const [fullStaff, shiftsRaw, payRaw, bookingsRaw] = await Promise.all([
+    supabase
+      .from("users")
+      .select(
+        "id, name, display_name, role, pin_code, customer_rate, staff_payout_rate, default_hourly_salary",
+      )
+      .order("name"),
+    supabase
       .from("shifts")
       .select(
         "id, user_id, start_time, end_time, hourly_salary, total_salary, users(name, display_name)",
       )
       .order("start_time", { ascending: false })
       .limit(40),
-  );
+    supabase
+      .from("shifts")
+      .select("user_id, total_salary, users(name, display_name)")
+      .not("total_salary", "is", null)
+      .gte("end_time", startIso)
+      .lt("end_time", endIso),
+    supabase
+      .from("invoice_staff_bookings")
+      .select(
+        "staff_id, hours_worked, staff_payout_rate, profit, users(name, display_name), invoices!inner(status, end_time)",
+      )
+      .eq("invoices.status", "PAID")
+      .gte("invoices.end_time", startIso)
+      .lt("invoices.end_time", endIso),
+  ]);
+
+  const staffResult = fullStaff.error
+    ? await supabase.from("users").select("id, name, role, pin_code").order("name")
+    : fullStaff;
+
+  let shiftResult = looseRows(shiftsRaw);
   if (isMissingDisplayNameError(shiftResult.error?.message)) {
     shiftResult = looseRows(
       await supabase
@@ -70,14 +86,7 @@ async function HrContent({ active }: { active: HrTab }) {
     );
   }
 
-  let payResult = looseRows(
-    await supabase
-      .from("shifts")
-      .select("user_id, total_salary, users(name, display_name)")
-      .not("total_salary", "is", null)
-      .gte("end_time", startIso)
-      .lt("end_time", endIso),
-  );
+  let payResult = looseRows(payRaw);
   if (isMissingDisplayNameError(payResult.error?.message)) {
     payResult = looseRows(
       await supabase
@@ -89,16 +98,7 @@ async function HrContent({ active }: { active: HrTab }) {
     );
   }
 
-  let bookingResult = looseRows(
-    await supabase
-      .from("invoice_staff_bookings")
-      .select(
-        "staff_id, hours_worked, staff_payout_rate, profit, users(name, display_name), invoices!inner(status, end_time)",
-      )
-      .eq("invoices.status", "PAID")
-      .gte("invoices.end_time", startIso)
-      .lt("invoices.end_time", endIso),
-  );
+  let bookingResult = looseRows(bookingsRaw);
   if (isMissingDisplayNameError(bookingResult.error?.message)) {
     bookingResult = looseRows(
       await supabase

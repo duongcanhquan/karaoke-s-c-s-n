@@ -1,9 +1,17 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { createRoom, deleteRoom } from "@/app/actions/rooms";
+import { createRoom, deleteRoom, updateRoom } from "@/app/actions/rooms";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -14,6 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
+import { adminFieldClass } from "@/lib/admin-ui";
 import { formatVnd } from "@/lib/money";
 import { labelRoomStatus } from "@/lib/room-status";
 
@@ -25,11 +34,90 @@ export type AdminRoom = {
   status: string;
 };
 
+const fieldClass = adminFieldClass;
+
+function RoomFields({
+  idPrefix,
+  room,
+}: {
+  idPrefix: string;
+  room?: AdminRoom;
+}) {
+  return (
+    <>
+      <label htmlFor={`${idPrefix}-name`} className="flex flex-col gap-1 text-sm font-medium">
+        Tên <span aria-hidden="true">*</span>
+        <Input
+          id={`${idPrefix}-name`}
+          name="name"
+          required
+          defaultValue={room?.name}
+          className={fieldClass}
+        />
+      </label>
+      <label htmlFor={`${idPrefix}-type`} className="flex flex-col gap-1 text-sm font-medium">
+        Loại <span aria-hidden="true">*</span>
+        <Input
+          id={`${idPrefix}-type`}
+          name="type"
+          required
+          defaultValue={room?.type ?? "VIP"}
+          className={fieldClass}
+        />
+      </label>
+      <label htmlFor={`${idPrefix}-rate`} className="flex flex-col gap-1 text-sm font-medium">
+        Giá giờ <span aria-hidden="true">*</span>
+        <Input
+          id={`${idPrefix}-rate`}
+          name="hourlyRate"
+          type="number"
+          min="0"
+          step="1"
+          required
+          defaultValue={room?.hourlyRate}
+          className={fieldClass}
+        />
+      </label>
+    </>
+  );
+}
+
+function readRoom(data: FormData) {
+  return {
+    name: String(data.get("name") ?? ""),
+    type: String(data.get("type") ?? ""),
+    hourlyRate: Number(data.get("hourlyRate")),
+  };
+}
+
 export function RoomBoard({ rooms }: { rooms: AdminRoom[] }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<AdminRoom | null>(null);
   const [removing, setRemoving] = useState<AdminRoom | null>(null);
   const [deletePin, setDeletePin] = useState("");
+
+  function run(
+    action: () => Promise<{ ok: true } | { ok: false; error: string }>,
+    success: string,
+    after?: () => void,
+  ) {
+    setError(null);
+    startTransition(async () => {
+      const result = await action();
+      if (!result.ok) {
+        setError(result.error);
+        toast.add({
+          title: "Không thực hiện được",
+          description: result.error,
+          type: "error",
+        });
+        return;
+      }
+      toast.add({ title: success, type: "success" });
+      after?.();
+    });
+  }
 
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
@@ -45,37 +133,12 @@ export function RoomBoard({ rooms }: { rooms: AdminRoom[] }) {
             onSubmit={(event) => {
               event.preventDefault();
               const form = event.currentTarget;
-              const data = new FormData(form);
-              setError(null);
-              startTransition(async () => {
-                const result = await createRoom({
-                  name: String(data.get("name") ?? ""),
-                  type: String(data.get("type") ?? ""),
-                  hourlyRate: Number(data.get("hourlyRate")),
-                });
-                if (!result.ok) {
-                  setError(result.error);
-                  toast.add({ title: "Không thực hiện được", description: result.error, type: "error" });
-                  return;
-                }
-                form.reset();
-                toast.add({ title: "Đã thêm phòng", type: "success" });
-              });
+              const input = readRoom(new FormData(form));
+              run(() => createRoom(input), "Đã thêm phòng", () => form.reset());
             }}
           >
-            <label htmlFor="room-name" className="flex flex-col gap-1 text-sm font-medium">
-              Tên <span aria-hidden="true">*</span>
-              <Input id="room-name" name="name" required className="min-h-11" />
-            </label>
-            <label htmlFor="room-type" className="flex flex-col gap-1 text-sm font-medium">
-              Loại <span aria-hidden="true">*</span>
-              <Input id="room-type" name="type" required defaultValue="VIP" className="min-h-11" />
-            </label>
-            <label htmlFor="room-rate" className="flex flex-col gap-1 text-sm font-medium">
-              Giá giờ <span aria-hidden="true">*</span>
-              <Input id="room-rate" name="hourlyRate" type="number" min="0" step="1" required className="min-h-11" />
-            </label>
-            {error ? (
+            <RoomFields idPrefix="create" />
+            {error && !editing && !removing ? (
               <p role="alert" className="text-sm text-destructive">
                 {error}
               </p>
@@ -96,112 +159,175 @@ export function RoomBoard({ rooms }: { rooms: AdminRoom[] }) {
             <p className="text-sm text-muted-foreground">Chưa có phòng.</p>
           ) : (
             <div className="w-full overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Phòng</TableHead>
-                  <TableHead>Loại</TableHead>
-                  <TableHead className="text-right">Giá giờ</TableHead>
-                  <TableHead>Trạng thái</TableHead>
-                  <TableHead>Xóa</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rooms.map((room) => (
-                  <TableRow key={room.id}>
-                    <TableCell>{room.name}</TableCell>
-                    <TableCell>{room.type}</TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {formatVnd(room.hourlyRate)}
-                    </TableCell>
-                    <TableCell>{labelRoomStatus(room.status)}</TableCell>
-                    <TableCell>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="min-h-11"
-                        disabled={pending || room.status !== "AVAILABLE"}
-                        onClick={() => {
-                          setError(null);
-                          setDeletePin("");
-                          setRemoving(room);
-                        }}
-                      >
-                        Xóa
-                      </Button>
-                    </TableCell>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Phòng</TableHead>
+                    <TableHead>Loại</TableHead>
+                    <TableHead className="text-right">Giá giờ</TableHead>
+                    <TableHead>Trạng thái</TableHead>
+                    <TableHead>Thao tác</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {rooms.map((room) => (
+                    <TableRow key={room.id}>
+                      <TableCell>{room.name}</TableCell>
+                      <TableCell>{room.type}</TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {formatVnd(room.hourlyRate)}
+                      </TableCell>
+                      <TableCell>{labelRoomStatus(room.status)}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="min-h-11"
+                            disabled={pending}
+                            onClick={() => {
+                              setError(null);
+                              setEditing(room);
+                            }}
+                          >
+                            Sửa
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            className="min-h-11"
+                            disabled={pending || room.status !== "AVAILABLE"}
+                            onClick={() => {
+                              setError(null);
+                              setDeletePin("");
+                              setRemoving(room);
+                            }}
+                          >
+                            Xóa
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {removing ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
-            <p className="text-xl font-bold text-slate-950">Xóa {removing.name}?</p>
-            <p className="mt-1 text-sm text-slate-600">Cần mã PIN quản lý. Chỉ xóa được phòng đang trống.</p>
-            <Input
-              type="password"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              placeholder="PIN quản lý"
-              value={deletePin}
-              onChange={(event) => setDeletePin(event.target.value)}
-              className="mt-4 min-h-12 text-center text-xl font-bold tracking-[0.3em]"
-            />
-            {error ? (
-              <p role="alert" className="mt-2 text-sm text-destructive">
-                {error}
-              </p>
-            ) : null}
-            <div className="mt-4 flex flex-col gap-2">
-              <Button
-                type="button"
-                variant="destructive"
-                className="min-h-12"
-                disabled={pending || !deletePin.trim()}
-                onClick={() => {
-                  const target = removing;
-                  startTransition(async () => {
-                    const result = await deleteRoom(target.id, deletePin.trim());
-                    if (!result.ok) {
-                      setError(result.error);
-                      toast.add({
-                        title: "Không thực hiện được",
-                        description: result.error,
-                        type: "error",
-                      });
-                      return;
-                    }
+      <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] w-full overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Sửa {editing?.name}</DialogTitle>
+            <DialogDescription>
+              Đổi tên, loại hoặc giá giờ. Trạng thái phòng vẫn do quầy thu ngân quản lý.
+            </DialogDescription>
+          </DialogHeader>
+          {editing ? (
+            <form
+              key={editing.id}
+              className="flex w-full flex-col gap-3"
+              noValidate
+              onSubmit={(event) => {
+                event.preventDefault();
+                const id = editing.id;
+                const input = readRoom(new FormData(event.currentTarget));
+                run(() => updateRoom({ id, ...input }), "Đã cập nhật phòng", () =>
+                  setEditing(null),
+                );
+              }}
+            >
+              <RoomFields idPrefix="edit" room={editing} />
+              {error ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
+              ) : null}
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={() => setEditing(null)}
+                >
+                  Hủy
+                </Button>
+                <Button type="submit" className="min-h-11" disabled={pending}>
+                  {pending ? "Đang lưu" : "Lưu"}
+                </Button>
+              </DialogFooter>
+            </form>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={removing !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRemoving(null);
+            setDeletePin("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Xóa {removing?.name}?</DialogTitle>
+            <DialogDescription>
+              Cần mã PIN quản lý. Chỉ xóa được phòng đang trống.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            type="password"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="PIN quản lý"
+            value={deletePin}
+            onChange={(event) => setDeletePin(event.target.value)}
+            className="min-h-12 text-center text-xl font-bold tracking-[0.3em]"
+          />
+          {error ? (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11"
+              onClick={() => {
+                setRemoving(null);
+                setDeletePin("");
+                setError(null);
+              }}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="min-h-11"
+              disabled={pending || !removing || !deletePin.trim()}
+              onClick={() => {
+                if (!removing) return;
+                const pin = deletePin.trim();
+                run(
+                  () => deleteRoom(removing.id, pin),
+                  "Đã xóa phòng",
+                  () => {
                     setRemoving(null);
                     setDeletePin("");
-                    toast.add({ title: "Đã xóa phòng", type: "success" });
-                  });
-                }}
-              >
-                Xóa phòng
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-11"
-                disabled={pending}
-                onClick={() => {
-                  setRemoving(null);
-                  setDeletePin("");
-                  setError(null);
-                }}
-              >
-                Hủy
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+                  },
+                );
+              }}
+            >
+              Xóa phòng
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

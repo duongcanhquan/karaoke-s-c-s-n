@@ -7,10 +7,19 @@ import {
   deleteInventoryUnit,
   receiveStock,
   stocktakeProduct,
+  updateInventoryUnit,
   updateProductStockMeta,
 } from "@/app/actions/inventory";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -20,8 +29,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AdminTabsList, AdminTabsTrigger } from "@/components/admin/admin-tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
+import { adminFieldClass, adminHintBoxClass } from "@/lib/admin-ui";
 import { labelCategory } from "@/lib/catalog";
 import { selectClass } from "@/lib/field-class";
 import {
@@ -73,7 +84,7 @@ export type InventoryUnit = {
   name: string;
 };
 
-const fieldClass = "min-h-11";
+const fieldClass = adminFieldClass;
 
 function typeLabel(type: string) {
   if (type === "IN") return "Nhập kho";
@@ -103,6 +114,8 @@ export function InventoryBoard({
   const [stocktakeError, setStocktakeError] = useState<string | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
   const [unitError, setUnitError] = useState<string | null>(null);
+  const [editingUnit, setEditingUnit] = useState<InventoryUnit | null>(null);
+  const [editUnitName, setEditUnitName] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [packQty, setPackQty] = useState("1");
   const [looseQty, setLooseQty] = useState("0");
@@ -138,23 +151,13 @@ export function InventoryBoard({
       }}
       className="gap-4"
     >
-      <TabsList className="h-auto w-full flex-wrap justify-start gap-1 p-1 sm:w-fit">
-        <TabsTrigger value="receive" className="min-h-11 px-4 text-base font-bold">
-          Nhập hàng
-        </TabsTrigger>
-        <TabsTrigger value="stocktake" className="min-h-11 px-4 text-base font-bold">
-          Kiểm kê
-        </TabsTrigger>
-        <TabsTrigger value="catalog" className="min-h-11 px-4 text-base font-bold">
-          Quy cách món
-        </TabsTrigger>
-        <TabsTrigger value="units" className="min-h-11 px-4 text-base font-bold">
-          Đơn vị
-        </TabsTrigger>
-        <TabsTrigger value="ledger" className="min-h-11 px-4 text-base font-bold">
-          Sổ kho
-        </TabsTrigger>
-      </TabsList>
+      <AdminTabsList>
+        <AdminTabsTrigger value="receive">Nhập hàng</AdminTabsTrigger>
+        <AdminTabsTrigger value="stocktake">Kiểm kê</AdminTabsTrigger>
+        <AdminTabsTrigger value="catalog">Quy cách món</AdminTabsTrigger>
+        <AdminTabsTrigger value="units">Đơn vị</AdminTabsTrigger>
+        <AdminTabsTrigger value="ledger">Sổ kho</AdminTabsTrigger>
+      </AdminTabsList>
 
       <TabsContent value="receive" className="mt-0">
         <Card>
@@ -223,7 +226,7 @@ export function InventoryBoard({
               </div>
 
               {selected ? (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <div className={adminHintBoxClass}>
                   <p>
                     Đơn vị gốc: <span className="font-semibold">{selected.unit}</span>
                     {" · "}
@@ -636,28 +639,43 @@ export function InventoryBoard({
                     >
                       <span className="font-medium">{unit.name}</span>
                       {unit.id.startsWith("default-") ? null : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="min-h-10"
-                          disabled={pending}
-                          onClick={() => {
-                            startTransition(async () => {
-                              const result = await deleteInventoryUnit(unit.id);
-                              if (!result.ok) {
-                                toast.add({
-                                  title: "Không xóa được",
-                                  description: result.error,
-                                  type: "error",
-                                });
-                                return;
-                              }
-                              toast.add({ title: `Đã xóa ${unit.name}`, type: "success" });
-                            });
-                          }}
-                        >
-                          Xóa
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="min-h-10"
+                            disabled={pending}
+                            onClick={() => {
+                              setUnitError(null);
+                              setEditingUnit(unit);
+                              setEditUnitName(unit.name);
+                            }}
+                          >
+                            Sửa
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            className="min-h-10"
+                            disabled={pending}
+                            onClick={() => {
+                              startTransition(async () => {
+                                const result = await deleteInventoryUnit(unit.id);
+                                if (!result.ok) {
+                                  toast.add({
+                                    title: "Không xóa được",
+                                    description: result.error,
+                                    type: "error",
+                                  });
+                                  return;
+                                }
+                                toast.add({ title: `Đã xóa ${unit.name}`, type: "success" });
+                              });
+                            }}
+                          >
+                            Xóa
+                          </Button>
+                        </div>
                       )}
                     </li>
                   ))
@@ -666,6 +684,76 @@ export function InventoryBoard({
             </CardContent>
           </Card>
         </div>
+
+        <Dialog
+          open={editingUnit !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setEditingUnit(null);
+              setEditUnitName("");
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Sửa đơn vị</DialogTitle>
+              <DialogDescription>Đổi tên đơn vị dùng trong quy cách kho.</DialogDescription>
+            </DialogHeader>
+            <Input
+              value={editUnitName}
+              onChange={(event) => setEditUnitName(event.target.value)}
+              className={fieldClass}
+              placeholder="Tên đơn vị"
+            />
+            {unitError ? (
+              <p role="alert" className="text-sm text-destructive">
+                {unitError}
+              </p>
+            ) : null}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                onClick={() => {
+                  setEditingUnit(null);
+                  setEditUnitName("");
+                }}
+              >
+                Hủy
+              </Button>
+              <Button
+                type="button"
+                className="min-h-11"
+                disabled={pending || !editingUnit || !editUnitName.trim()}
+                onClick={() => {
+                  if (!editingUnit) return;
+                  setUnitError(null);
+                  startTransition(async () => {
+                    const result = await updateInventoryUnit(
+                      editingUnit.id,
+                      editUnitName,
+                    );
+                    if (!result.ok) {
+                      setUnitError(result.error);
+                      toast.add({
+                        title: "Không cập nhật được",
+                        description: result.error,
+                        type: "error",
+                      });
+                      return;
+                    }
+                    setEditingUnit(null);
+                    setEditUnitName("");
+                    toast.add({ title: "Đã cập nhật đơn vị", type: "success" });
+                  });
+                }}
+              >
+                {pending ? "Đang lưu" : "Lưu"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </TabsContent>
 
       <TabsContent value="ledger" className="mt-0">

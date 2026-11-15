@@ -77,6 +77,35 @@ export async function saveRoomMinibar(input: {
   return { ok: true };
 }
 
+export async function updateRoomMinibarQuantity(
+  id: string,
+  defaultQuantity: number,
+): Promise<ActionResult> {
+  const gate = await requireAdminSession();
+  if (!gate.ok) return gate;
+  if (!id) return { ok: false, error: "Không tìm thấy dòng minibar." };
+  const quantity = Number(defaultQuantity);
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    return { ok: false, error: "Số lượng mặc định phải là số nguyên lớn hơn 0." };
+  }
+
+  const supabase = createDb();
+  const { data, error } = await supabase
+    .from("room_minibar_setup")
+    .update({ default_quantity: quantity })
+    .eq("id", id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return { ok: false, error: explainDbError(error.message, "Không cập nhật được số lượng.") };
+  }
+  if (!data) return { ok: false, error: "Không tìm thấy dòng minibar." };
+
+  refresh();
+  return { ok: true };
+}
+
 export async function removeRoomMinibar(id: string): Promise<ActionResult> {
   const gate = await requireAdminSession();
   if (!gate.ok) return gate;

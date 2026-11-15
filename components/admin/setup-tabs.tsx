@@ -2,7 +2,8 @@
 
 import type { ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AdminTabsList, AdminTabsTrigger } from "@/components/admin/admin-tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 
 export function SetupTabs({
   active,
@@ -30,14 +31,10 @@ export function SetupTabs({
       }}
       className="gap-4"
     >
-      <TabsList className="h-auto w-full flex-wrap justify-start gap-1 p-1 sm:w-fit">
-        <TabsTrigger value="rooms" className="min-h-11 px-4 text-base font-bold">
-          Phòng
-        </TabsTrigger>
-        <TabsTrigger value="minibar" className="min-h-11 px-4 text-base font-bold">
-          Setup minibar
-        </TabsTrigger>
-      </TabsList>
+      <AdminTabsList>
+        <AdminTabsTrigger value="rooms">Phòng</AdminTabsTrigger>
+        <AdminTabsTrigger value="minibar">Setup minibar</AdminTabsTrigger>
+      </AdminTabsList>
       <TabsContent value="rooms" className="mt-0">
         {current === "rooms" ? roomsPanel : null}
       </TabsContent>

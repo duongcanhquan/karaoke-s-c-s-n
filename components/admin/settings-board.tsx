@@ -12,10 +12,12 @@ import { printTestReceipt } from "@/components/pos/receipt-print";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AdminTabsList, AdminTabsTrigger } from "@/components/admin/admin-tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { vietnamBanks } from "@/lib/banks";
 import { selectClass } from "@/lib/field-class";
+import { adminFieldClass } from "@/lib/admin-ui";
 import {
   savePrinterPrefsLocal,
   type ReceiptShopInfo,
@@ -23,7 +25,7 @@ import {
 
 export type SettingsTab = "shop" | "bank" | "printer";
 
-const fieldClass = "min-h-11";
+const fieldClass = adminFieldClass;
 
 function toLocalPrefs(settings: ShopSettings): ReceiptShopInfo {
   return {
@@ -74,17 +76,11 @@ export function SettingsBoard({
       }}
       className="gap-4"
     >
-      <TabsList className="h-auto w-full flex-wrap justify-start gap-1 p-1 sm:w-fit">
-        <TabsTrigger value="shop" className="min-h-11 px-4 text-base font-bold">
-          Thông tin quán
-        </TabsTrigger>
-        <TabsTrigger value="bank" className="min-h-11 px-4 text-base font-bold">
-          Ngân hàng / QR
-        </TabsTrigger>
-        <TabsTrigger value="printer" className="min-h-11 px-4 text-base font-bold">
-          Máy in
-        </TabsTrigger>
-      </TabsList>
+      <AdminTabsList>
+        <AdminTabsTrigger value="shop">Thông tin quán</AdminTabsTrigger>
+        <AdminTabsTrigger value="bank">Ngân hàng / QR</AdminTabsTrigger>
+        <AdminTabsTrigger value="printer">Máy in</AdminTabsTrigger>
+      </AdminTabsList>
 
       <TabsContent value="shop" className="mt-0">
         <Card className="max-w-xl">

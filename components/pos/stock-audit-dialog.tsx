@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,6 +27,14 @@ import {
 } from "@/lib/billing";
 import type { InvoiceItem, StockAuditLine } from "@/lib/pos-types";
 
+function seedRemaining(items: InvoiceItem[]) {
+  const next: Record<string, string> = {};
+  for (const item of items) {
+    next[item.product_id] = String(lineNeedsAudit(item) ? item.remaining_qty : 0);
+  }
+  return next;
+}
+
 export function StockAuditDialog({
   open,
   onOpenChange,
@@ -48,19 +56,17 @@ export function StockAuditDialog({
   staffTotal: number;
   onConfirm: (audit: StockAuditLine[]) => void;
 }) {
-  const [remaining, setRemaining] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    if (!open) return;
-    const next: Record<string, string> = {};
-    for (const item of items) {
-      next[item.product_id] = String(lineNeedsAudit(item) ? item.remaining_qty : 0);
-    }
-    setRemaining(next);
-  }, [open, items]);
+  const [remaining, setRemaining] = useState(() => seedRemaining(items));
+  const [seedKey, setSeedKey] = useState(() =>
+    open ? items.map((item) => item.id).join("|") : "",
+  );
+  const nextSeedKey = open ? items.map((item) => item.id).join("|") : "";
+  if (open && nextSeedKey !== seedKey) {
+    setSeedKey(nextSeedKey);
+    setRemaining(seedRemaining(items));
+  }
 
   const review = useMemo(() => {
-    let error: string | null = null;
     const audit: StockAuditLine[] = [];
 
     const rows = items.map((item) => {
@@ -74,9 +80,6 @@ export function StockAuditDialog({
       const remainingQty = auditLine ? (valid ? parsed : item.remaining_qty) : 0;
       const consumed = consumedFromRemaining(item.initial_qty, item.ordered_qty, remainingQty);
 
-      if (auditLine && !valid && !error) {
-        error = `Số còn lại của ${item.name} phải từ 0 đến ${available}.`;
-      }
       if (auditLine) {
         audit.push({
           productId: item.product_id,
@@ -86,6 +89,11 @@ export function StockAuditDialog({
 
       return { item, available, auditLine, consumed, valid };
     });
+
+    const bad = rows.find((row) => row.auditLine && !row.valid);
+    const error = bad
+      ? `Số còn lại của ${bad.item.name} phải từ 0 đến ${bad.available}.`
+      : null;
 
     return { rows, error, audit };
   }, [items, remaining]);

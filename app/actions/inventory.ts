@@ -294,6 +294,35 @@ export async function createInventoryUnit(name: string): Promise<ActionResult> {
   return { ok: true };
 }
 
+export async function updateInventoryUnit(
+  id: string,
+  name: string,
+): Promise<ActionResult> {
+  const gate = await requireAdminSession();
+  if (!gate.ok) return gate;
+  if (!id) return { ok: false, error: "Không tìm thấy đơn vị." };
+  const unit = name.trim().toLowerCase();
+  if (!unit) return { ok: false, error: "Nhập tên đơn vị." };
+  if (unit.length > 24) return { ok: false, error: "Tên đơn vị tối đa 24 ký tự." };
+
+  const supabase = createDb();
+  const { data, error } = await supabase
+    .from("inventory_units")
+    .update({ name: unit })
+    .eq("id", id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === "23505") return { ok: false, error: "Đơn vị đã có." };
+    return { ok: false, error: explainDbError(error.message, "Không cập nhật được đơn vị.") };
+  }
+  if (!data) return { ok: false, error: "Không tìm thấy đơn vị." };
+
+  refresh();
+  return { ok: true };
+}
+
 export async function deleteInventoryUnit(id: string): Promise<ActionResult> {
   const gate = await requireAdminSession();
   if (!gate.ok) return gate;

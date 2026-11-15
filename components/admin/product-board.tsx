@@ -22,6 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
+import { adminFieldClass, adminHintBoxClass } from "@/lib/admin-ui";
 import { categoryLabel, labelCategory, productCategories, type ProductCategory } from "@/lib/catalog";
 import { selectClass } from "@/lib/field-class";
 import { formatVnd } from "@/lib/money";
@@ -37,7 +38,7 @@ export type MenuProduct = {
   isMinibar: boolean;
 };
 
-const fieldClass = "min-h-11";
+const fieldClass = adminFieldClass;
 
 function notify(ok: boolean, success: string, error?: string) {
   if (ok) {
@@ -139,9 +140,9 @@ function ProductFields({
       </div>
       {product ? (
         <>
-          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-            Tồn kho sửa ở <span className="font-semibold">Kho hàng</span> (nhập / kiểm kê) — không
-            ghi đè khi sửa món.
+          <p className={adminHintBoxClass}>
+            Tồn kho sửa ở <span className="font-semibold text-foreground">Kho hàng</span> (nhập /
+            kiểm kê) — không ghi đè khi sửa món.
           </p>
           <input type="hidden" name="stockQuantity" value={String(product.stock)} />
         </>

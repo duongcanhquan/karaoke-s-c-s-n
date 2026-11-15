@@ -66,7 +66,7 @@ export function RevenueBoard({
 }) {
   const [pending, startTransition] = useTransition();
   const [period, setPeriod] = useState<RevenuePeriod>("day");
-  const [periodKey, setPeriodKey] = useState("");
+  const [periodKey, setPeriodKey] = useState(() => defaultKey("day"));
   const [revenue, setRevenue] = useState<PeriodRevenue | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [detail, setDetail] = useState<PaidBillDetail | null>(null);
@@ -78,6 +78,7 @@ export function RevenueBoard({
     productId: string;
     delta: 1 | -1;
   } | null>(null);
+  const [openSync, setOpenSync] = useState(open);
 
   function load(nextPeriod: RevenuePeriod, nextKey: string) {
     startTransition(async () => {
@@ -95,15 +96,20 @@ export function RevenueBoard({
     });
   }
 
+  if (open !== openSync) {
+    setOpenSync(open);
+    if (open) {
+      setPeriod("day");
+      setPeriodKey(defaultKey("day"));
+      setDetail(null);
+      setDetailOpen(false);
+      setManagerPin(null);
+    }
+  }
+
   useEffect(() => {
     if (!open) return;
-    const key = defaultKey("day");
-    setPeriod("day");
-    setPeriodKey(key);
-    load("day", key);
-    setDetail(null);
-    setDetailOpen(false);
-    setManagerPin(null);
+    load("day", defaultKey("day"));
   }, [open]);
 
   function openBill(invoiceId: string) {

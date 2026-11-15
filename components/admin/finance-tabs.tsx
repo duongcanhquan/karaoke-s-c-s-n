@@ -2,7 +2,8 @@
 
 import type { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AdminTabsList, AdminTabsTrigger } from "@/components/admin/admin-tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 
 export type FinanceTab = "revenue" | "expenses" | "summary";
 
@@ -26,23 +27,16 @@ export function FinanceTabs({
       onValueChange={(value) => {
         const next =
           value === "expenses" ? "expenses" : value === "summary" ? "summary" : "revenue";
-        const href =
-          next === "revenue" ? pathname : `${pathname}?tab=${next}`;
+        const href = next === "revenue" ? pathname : `${pathname}?tab=${next}`;
         router.replace(href, { scroll: false });
       }}
       className="gap-4"
     >
-      <TabsList className="h-auto w-full flex-wrap justify-start gap-1 p-1 sm:w-fit">
-        <TabsTrigger value="revenue" className="min-h-11 px-4 text-base font-bold">
-          Doanh thu
-        </TabsTrigger>
-        <TabsTrigger value="expenses" className="min-h-11 px-4 text-base font-bold">
-          Chi phí
-        </TabsTrigger>
-        <TabsTrigger value="summary" className="min-h-11 px-4 text-base font-bold">
-          Tổng hợp
-        </TabsTrigger>
-      </TabsList>
+      <AdminTabsList>
+        <AdminTabsTrigger value="revenue">Doanh thu</AdminTabsTrigger>
+        <AdminTabsTrigger value="expenses">Chi phí</AdminTabsTrigger>
+        <AdminTabsTrigger value="summary">Tổng hợp</AdminTabsTrigger>
+      </AdminTabsList>
       <TabsContent value="revenue" className="mt-0">
         {active === "revenue" ? revenuePanel : null}
       </TabsContent>

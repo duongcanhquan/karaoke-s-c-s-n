@@ -49,6 +49,47 @@ export async function createRoom(input: {
   return { ok: true };
 }
 
+export async function updateRoom(input: {
+  id: string;
+  name: string;
+  type: string;
+  hourlyRate: number;
+}): Promise<ActionResult> {
+  const gate = await requireAdminSession();
+  if (!gate.ok) return gate;
+  if (!input.id) return { ok: false, error: "Không tìm thấy phòng." };
+
+  const name = input.name.trim();
+  const type = input.type.trim();
+  const hourlyRate = roundMoney(Number(input.hourlyRate));
+  if (!name) return { ok: false, error: "Nhập tên phòng." };
+  if (!type) return { ok: false, error: "Nhập loại phòng." };
+  if (!Number.isFinite(hourlyRate) || hourlyRate < 0) {
+    return { ok: false, error: "Giá giờ phải là số không âm." };
+  }
+
+  const supabase = createDb();
+  const { data, error } = await supabase
+    .from("rooms")
+    .update({
+      name,
+      type,
+      hourly_rate: hourlyRate,
+    })
+    .eq("id", input.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === "23505") return { ok: false, error: "Tên phòng đã có." };
+    return { ok: false, error: explainDbError(error.message, "Không cập nhật được phòng.") };
+  }
+  if (!data) return { ok: false, error: "Không tìm thấy phòng." };
+
+  refresh();
+  return { ok: true };
+}
+
 export async function deleteRoom(id: string, managerPin: string): Promise<ActionResult> {
   const gate = await requireAdminSession();
   if (!gate.ok) return gate;

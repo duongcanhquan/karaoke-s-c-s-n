@@ -55,7 +55,7 @@ function NavLinks({
 }: {
   pathname: string;
   pendingHref: string | null;
-  onNavigate?: (href: string) => void;
+  onNavigate: (href: string) => void;
 }) {
   return (
     <nav aria-label="Chính" className="flex flex-col gap-1 px-3 pb-6">
@@ -70,14 +70,28 @@ function NavLinks({
             prefetch
             aria-current={current ? "page" : undefined}
             aria-busy={pending || undefined}
-            onClick={() => onNavigate?.(link.href)}
+            onClick={(event) => {
+              // Soft client nav via transition — keeps shell interactive while RSC streams.
+              if (
+                event.defaultPrevented ||
+                event.button !== 0 ||
+                event.metaKey ||
+                event.altKey ||
+                event.ctrlKey ||
+                event.shiftKey
+              ) {
+                return;
+              }
+              event.preventDefault();
+              onNavigate(link.href);
+            }}
             className={cn(
-              "flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors duration-150 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none",
+              "flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg px-3 text-sm font-semibold transition-colors duration-150 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none",
               current
-                ? "bg-primary text-primary-foreground"
+                ? "bg-primary text-primary-foreground shadow-sm"
                 : pending
                   ? "bg-muted text-foreground"
-                  : "text-foreground hover:bg-muted",
+                  : "text-foreground/80 hover:bg-muted hover:text-foreground",
             )}
           >
             <Icon aria-hidden="true" className="size-4" />
@@ -109,9 +123,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [pendingHref, setPendingHref] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
-  useEffect(() => {
+  if (pendingHref && isCurrent(pathname, pendingHref)) {
     setPendingHref(null);
-  }, [pathname]);
+  }
 
   useEffect(() => {
     // Warm every admin route + POS as soon as shell mounts.
@@ -136,10 +150,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   function handleNavigate(href: string) {
     setMenuOpen(false);
     if (href === pathname) return;
-    // Instant paint of pending state; Link still performs the real navigation.
+    setPendingHref(href);
     startTransition(() => {
-      setPendingHref(href);
-      router.prefetch(href);
+      router.push(href);
     });
   }
 
@@ -150,7 +163,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           aria-hidden="true"
           className="pointer-events-none fixed inset-x-0 top-0 z-50 h-1 overflow-hidden bg-muted"
         >
-          <div className="h-full w-1/3 bg-primary motion-safe:animate-pulse" />
+          <div className="admin-nav-progress h-full w-1/2 bg-primary" />
         </div>
       ) : null}
 
@@ -209,12 +222,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </SheetContent>
         </Sheet>
 
-        <main
-          className={cn(
-            "flex-1 px-4 py-6 transition-opacity duration-150 md:px-8 md:py-8",
-            pendingHref ? "opacity-60" : "opacity-100",
-          )}
-        >
+        <main className="flex-1 px-4 py-6 md:px-8 md:py-8">
           {children}
         </main>
       </div>

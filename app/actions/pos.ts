@@ -45,6 +45,32 @@ import { createDb } from "@/utils/supabase/db";
 
 type Supabase = ReturnType<typeof createDb>;
 
+/** Remember which optional columns exist so checkout does not double-query every time. */
+const schema = {
+  invoicePaymentCols: true,
+  itemDisplayName: true,
+  bookingDisplayName: true,
+  bookingTimes: true,
+  shopSettingsFull: true,
+  auditRpc: null as boolean | null,
+};
+
+type BankSettingsValue = {
+  bankBin: string;
+  bankAccountNumber: string;
+  bankAccountName: string;
+  shopName: string;
+  shopAddress: string;
+  shopPhone: string;
+  receiptFooter: string;
+  printerPaperMm: 58 | 80;
+  printerAutoPrint: boolean;
+  printerCopies: number;
+  printerName: string;
+};
+let bankCache: { at: number; value: BankSettingsValue } | null = null;
+const BANK_CACHE_MS = 60_000;
+
 function fail(error: { message: string } | null, fallback: string): ActionResult | null {
   if (!error) return null;
   return { ok: false, error: explainDbError(error.message, fallback) };
@@ -653,17 +679,21 @@ async function applyAudit(
   invoiceId: string,
   audit: StockAuditLine[],
 ): Promise<ActionResult> {
+  const selectWithDisplay =
+    "id, product_id, initial_qty, ordered_qty, remaining_qty, products(name, display_name, is_minibar_item)";
+  const selectBasic =
+    "id, product_id, initial_qty, ordered_qty, remaining_qty, products(name, is_minibar_item)";
+
   let linesQuery = await supabase
     .from("invoice_items")
-    .select(
-      "id, product_id, initial_qty, ordered_qty, products(name, display_name, is_minibar_item)",
-    )
+    .select(schema.itemDisplayName ? selectWithDisplay : selectBasic)
     .eq("invoice_id", invoiceId);
 
-  if (linesQuery.error && linesQuery.error.message.toLowerCase().includes("display_name")) {
+  if (linesQuery.error && isMissingDisplayNameError(linesQuery.error.message)) {
+    schema.itemDisplayName = false;
     linesQuery = (await supabase
       .from("invoice_items")
-      .select("id, product_id, initial_qty, ordered_qty, products(name, is_minibar_item)")
+      .select(selectBasic)
       .eq("invoice_id", invoiceId)) as typeof linesQuery;
   }
 
@@ -683,6 +713,7 @@ async function applyAudit(
     const productId = String(line.product_id);
     const initial = Number(line.initial_qty);
     const ordered = Number(line.ordered_qty);
+    const currentRemaining = Number(line.remaining_qty);
     const available = availableQty(initial, ordered);
     const needsAudit = lineNeedsAudit({
       is_minibar_item: Boolean(product?.is_minibar_item),
@@ -704,10 +735,37 @@ async function applyAudit(
       remaining = entered;
     }
 
+    // Skip no-op writes — common when cashier keeps on-screen remaining.
+    if (currentRemaining === remaining) continue;
     updates.push({ id: String(line.id), remaining, name });
   }
 
-  // Parallel updates — sequential N round-trips made checkout feel frozen.
+  if (updates.length === 0) return { ok: true };
+
+  // Prefer one RPC round-trip when the SQL helper is installed.
+  if (schema.auditRpc !== false) {
+    const rpc = await supabase.rpc("apply_invoice_item_audit", {
+      p_invoice_id: invoiceId,
+      p_items: updates.map((row) => ({
+        id: row.id,
+        remaining_qty: row.remaining,
+      })),
+    });
+    if (!rpc.error) {
+      schema.auditRpc = true;
+      return { ok: true };
+    }
+    const missing =
+      rpc.error.message.toLowerCase().includes("apply_invoice_item_audit") ||
+      rpc.error.message.toLowerCase().includes("could not find") ||
+      rpc.error.code === "PGRST202" ||
+      rpc.error.code === "42883";
+    if (!missing) {
+      return fail(rpc.error, "Không lưu được kiểm đồ.") ?? { ok: false, error: rpc.error.message };
+    }
+    schema.auditRpc = false;
+  }
+
   const results = await Promise.all(
     updates.map((row) =>
       supabase
@@ -731,7 +789,7 @@ async function loadInvoiceTotals(
   invoiceId: string,
   options?: { requireActive?: boolean },
 ) {
-  let invoice: {
+  type InvoiceRow = {
     id: unknown;
     room_id: unknown;
     room_total: unknown;
@@ -741,63 +799,107 @@ async function loadInvoiceTotals(
     payment_method?: unknown;
     cash_amount?: unknown;
     transfer_amount?: unknown;
-  } | null = null;
+    rooms:
+      | { name: unknown; type: unknown; hourly_rate: unknown }
+      | { name: unknown; type: unknown; hourly_rate: unknown }[]
+      | null;
+  };
 
-  {
-    const withPay = await supabase
+  const paySelect =
+    "id, room_id, room_total, start_time, end_time, status, payment_method, cash_amount, transfer_amount, rooms(name, type, hourly_rate)";
+  const basicSelect =
+    "id, room_id, room_total, start_time, end_time, status, rooms(name, type, hourly_rate)";
+
+  let invoiceResult = await supabase
+    .from("invoices")
+    .select(schema.invoicePaymentCols ? paySelect : basicSelect)
+    .eq("id", invoiceId)
+    .maybeSingle();
+
+  if (invoiceResult.error && schema.invoicePaymentCols) {
+    schema.invoicePaymentCols = false;
+    invoiceResult = await supabase
       .from("invoices")
-      .select(
-        "id, room_id, room_total, start_time, end_time, status, payment_method, cash_amount, transfer_amount",
-      )
+      .select(basicSelect)
       .eq("id", invoiceId)
       .maybeSingle();
-    if (withPay.error) {
-      // Older DB without payment columns — still allow checkout.
-      const basic = await supabase
-        .from("invoices")
-        .select("id, room_id, room_total, start_time, end_time, status")
-        .eq("id", invoiceId)
-        .maybeSingle();
-      if (basic.error) return { error: basic.error.message };
-      invoice = basic.data;
-    } else {
-      invoice = withPay.data;
-    }
   }
+  if (invoiceResult.error) return { error: invoiceResult.error.message };
+
+  const invoice = invoiceResult.data as InvoiceRow | null;
   if (!invoice) return { error: "Không tìm thấy hóa đơn." };
   if (options?.requireActive && invoice.status !== "ACTIVE") {
     return { error: "Hóa đơn không còn mở." };
   }
 
+  const roomRaw = Array.isArray(invoice.rooms) ? invoice.rooms[0] : invoice.rooms;
+  if (!roomRaw) return { error: "Không tìm thấy phòng của hóa đơn." };
+
   const payment_method = invoice.payment_method ?? null;
   const cash_amount = invoice.cash_amount ?? 0;
   const transfer_amount = invoice.transfer_amount ?? 0;
 
-  const { data: room, error: roomError } = await supabase
-    .from("rooms")
-    .select("name, type, hourly_rate")
-    .eq("id", invoice.room_id)
-    .maybeSingle();
-  if (roomError) return { error: roomError.message };
-  if (!room) return { error: "Không tìm thấy phòng của hóa đơn." };
+  const itemsSelectFull =
+    "product_id, consumed_qty, ordered_qty, price, products(name, display_name)";
+  const itemsSelectBasic =
+    "product_id, consumed_qty, ordered_qty, price, products(name)";
+  const bookingSelect = () => {
+    const userCols = schema.bookingDisplayName
+      ? "users(name, display_name)"
+      : "users(name)";
+    const timeCols = schema.bookingTimes ? "start_time, end_time, " : "";
+    return `id, hours_worked, customer_rate, ${timeCols}${userCols}`;
+  };
 
-  let itemsQuery = await supabase
-    .from("invoice_items")
-    .select("product_id, consumed_qty, ordered_qty, price, products(name, display_name)")
-    .eq("invoice_id", invoiceId);
-  if (itemsQuery.error && itemsQuery.error.message.toLowerCase().includes("display_name")) {
-    itemsQuery = (await supabase
+  const [itemsFirst, bookingsRaw] = await Promise.all([
+    supabase
       .from("invoice_items")
-      .select("product_id, consumed_qty, ordered_qty, price, products(name)")
-      .eq("invoice_id", invoiceId)) as typeof itemsQuery;
+      .select(schema.itemDisplayName ? itemsSelectFull : itemsSelectBasic)
+      .eq("invoice_id", invoiceId),
+    supabase
+      .from("invoice_staff_bookings")
+      .select(bookingSelect())
+      .eq("invoice_id", invoiceId),
+  ]);
+  let itemsQuery = itemsFirst;
+
+  if (itemsQuery.error && isMissingDisplayNameError(itemsQuery.error.message)) {
+    schema.itemDisplayName = false;
+    itemsQuery = await supabase
+      .from("invoice_items")
+      .select(itemsSelectBasic)
+      .eq("invoice_id", invoiceId);
   }
-  const { data: itemRows, error: itemError } = itemsQuery;
-  if (itemError) return { error: itemError.message };
+  if (itemsQuery.error) return { error: itemsQuery.error.message };
+
+  let bookingsQuery = looseRows(bookingsRaw);
+  if (
+    bookingsQuery.error &&
+    (bookingsQuery.error.message.toLowerCase().includes("start_time") ||
+      bookingsQuery.error.message.toLowerCase().includes("end_time"))
+  ) {
+    schema.bookingTimes = false;
+    bookingsQuery = looseRows(
+      await supabase
+        .from("invoice_staff_bookings")
+        .select(bookingSelect())
+        .eq("invoice_id", invoiceId),
+    );
+  }
+  if (isMissingDisplayNameError(bookingsQuery.error?.message)) {
+    schema.bookingDisplayName = false;
+    bookingsQuery = looseRows(
+      await supabase
+        .from("invoice_staff_bookings")
+        .select(bookingSelect())
+        .eq("invoice_id", invoiceId),
+    );
+  }
+  if (bookingsQuery.error) return { error: bookingsQuery.error.message };
 
   const lines: ReceiptLine[] = [];
   let itemsTotal = 0;
-  for (const item of itemRows ?? []) {
-    // Bill only what was consumed after audit — never fall back to ordered_qty.
+  for (const item of itemsQuery.data ?? []) {
     const chargeQty = Math.max(0, Number(item.consumed_qty));
     if (chargeQty <= 0) continue;
     const price = Number(item.price);
@@ -812,44 +914,6 @@ async function loadInvoiceTotals(
       canReduce: chargeQty > 0,
     });
   }
-
-  let bookingsQuery = looseRows(
-    await supabase
-      .from("invoice_staff_bookings")
-      .select(
-        "id, hours_worked, customer_rate, start_time, end_time, users(name, display_name)",
-      )
-      .eq("invoice_id", invoiceId),
-  );
-  if (isMissingDisplayNameError(bookingsQuery.error?.message)) {
-    bookingsQuery = looseRows(
-      await supabase
-        .from("invoice_staff_bookings")
-        .select("id, hours_worked, customer_rate, start_time, end_time, users(name)")
-        .eq("invoice_id", invoiceId),
-    );
-  }
-  if (
-    bookingsQuery.error &&
-    (bookingsQuery.error.message.toLowerCase().includes("start_time") ||
-      bookingsQuery.error.message.toLowerCase().includes("end_time"))
-  ) {
-    bookingsQuery = looseRows(
-      await supabase
-        .from("invoice_staff_bookings")
-        .select("id, hours_worked, customer_rate, users(name, display_name)")
-        .eq("invoice_id", invoiceId),
-    );
-    if (isMissingDisplayNameError(bookingsQuery.error?.message)) {
-      bookingsQuery = looseRows(
-        await supabase
-          .from("invoice_staff_bookings")
-          .select("id, hours_worked, customer_rate, users(name)")
-          .eq("invoice_id", invoiceId),
-      );
-    }
-  }
-  if (bookingsQuery.error) return { error: bookingsQuery.error.message };
 
   const staffLines: StaffReceiptLine[] = (bookingsQuery.data ?? []).map((booking) => {
     const hours = Number(booking.hours_worked);
@@ -874,7 +938,7 @@ async function loadInvoiceTotals(
       ? new Date(String(invoice.end_time))
       : new Date();
   const hours = billableHours(String(invoice.start_time), end.getTime());
-  const hourlyRate = Number(room.hourly_rate);
+  const hourlyRate = Number(roomRaw.hourly_rate);
   const roomTotal = roundMoney(hours * hourlyRate);
   const serviceTotalAmount = roundMoney(itemsTotal + staffTotal);
   const grandTotal = roundMoney(roomTotal + serviceTotalAmount);
@@ -887,8 +951,8 @@ async function loadInvoiceTotals(
       cash_amount,
       transfer_amount,
     },
-    roomName: String(room.name),
-    roomType: String(room.type),
+    roomName: String(roomRaw.name),
+    roomType: String(roomRaw.type),
     startTime: String(invoice.start_time),
     endTime: invoice.end_time ? String(invoice.end_time) : end.toISOString(),
     hourlyRate,
@@ -905,90 +969,72 @@ async function loadInvoiceTotals(
 }
 
 async function bankSettings(supabase: Supabase) {
-  const full = await supabase
-    .from("shop_settings")
-    .select(
-      "bank_bin, bank_account_number, bank_account_name, shop_name, shop_address, shop_phone, receipt_footer, printer_paper_mm, printer_auto_print, printer_copies, printer_name",
-    )
-    .order("id")
-    .limit(1)
-    .maybeSingle();
-
-  if (!full.error) {
-    const settings = full.data;
-    const paper = Number(settings?.printer_paper_mm) === 58 ? 58 : 80;
-    return {
-      error: null as string | null,
-      settings: {
-        bankBin: String(settings?.bank_bin ?? ""),
-        bankAccountNumber: String(settings?.bank_account_number ?? ""),
-        bankAccountName: String(settings?.bank_account_name ?? ""),
-        shopName: String(settings?.shop_name ?? "Karaoke"),
-        shopAddress: String(settings?.shop_address ?? ""),
-        shopPhone: String(settings?.shop_phone ?? ""),
-        receiptFooter: String(settings?.receipt_footer ?? "Cảm ơn quý khách"),
-        printerPaperMm: paper as 58 | 80,
-        printerAutoPrint: Boolean(settings?.printer_auto_print),
-        printerCopies: Math.min(3, Math.max(1, Number(settings?.printer_copies) || 1)),
-        printerName: String(settings?.printer_name ?? ""),
-      },
-    };
+  if (bankCache && Date.now() - bankCache.at < BANK_CACHE_MS) {
+    return { error: null as string | null, settings: bankCache.value };
   }
 
-  // Pre-migration fallback (bank columns only).
-  const basic = await supabase
-    .from("shop_settings")
-    .select("bank_bin, bank_account_number, bank_account_name")
-    .order("id")
-    .limit(1)
-    .maybeSingle();
-  if (basic.error) return { error: basic.error.message, settings: null };
-  return {
-    error: null as string | null,
-    settings: {
-      bankBin: String(basic.data?.bank_bin ?? ""),
-      bankAccountNumber: String(basic.data?.bank_account_number ?? ""),
-      bankAccountName: String(basic.data?.bank_account_name ?? ""),
-      shopName: "Karaoke",
-      shopAddress: "",
-      shopPhone: "",
-      receiptFooter: "Cảm ơn quý khách",
-      printerPaperMm: 80 as const,
-      printerAutoPrint: false,
-      printerCopies: 1,
-      printerName: "",
-    },
+  type SettingsRow = {
+    bank_bin?: unknown;
+    bank_account_number?: unknown;
+    bank_account_name?: unknown;
+    shop_name?: unknown;
+    shop_address?: unknown;
+    shop_phone?: unknown;
+    receipt_footer?: unknown;
+    printer_paper_mm?: unknown;
+    printer_auto_print?: unknown;
+    printer_copies?: unknown;
+    printer_name?: unknown;
   };
-}
 
-async function toPaymentCheckout(
-  supabase: Supabase,
-  invoiceId: string,
-  requireActive: boolean,
-): Promise<PrepareCheckoutResult> {
-  const totals = await loadInvoiceTotals(supabase, invoiceId, { requireActive });
-  if (totals.error || !totals.invoice) {
-    return { ok: false, error: totals.error ?? "Không tính được hóa đơn." };
+  let row: SettingsRow | null = null;
+  let errorMessage: string | null = null;
+
+  if (schema.shopSettingsFull) {
+    const full = await supabase
+      .from("shop_settings")
+      .select(
+        "bank_bin, bank_account_number, bank_account_name, shop_name, shop_address, shop_phone, receipt_footer, printer_paper_mm, printer_auto_print, printer_copies, printer_name",
+      )
+      .order("id")
+      .limit(1)
+      .maybeSingle();
+    if (full.error) {
+      schema.shopSettingsFull = false;
+    } else {
+      row = full.data as SettingsRow | null;
+    }
   }
-  const bank = await bankSettings(supabase);
-  if (bank.error || !bank.settings) return { ok: false, error: bank.error ?? "Không đọc được cài đặt." };
 
-  return {
-    ok: true,
-    invoiceId,
-    roomName: totals.roomName,
-    roomType: totals.roomType,
-    startTime: totals.startTime,
-    hourlyRate: totals.hourlyRate,
-    billableHours: totals.billableHours,
-    roomTotal: totals.roomTotal,
-    itemsTotal: totals.itemsTotal,
-    staffTotal: totals.staffTotal,
-    grandTotal: totals.grandTotal,
-    lines: totals.lines,
-    staffLines: totals.staffLines,
-    ...bank.settings,
+  if (!row && !schema.shopSettingsFull) {
+    const basic = await supabase
+      .from("shop_settings")
+      .select("bank_bin, bank_account_number, bank_account_name")
+      .order("id")
+      .limit(1)
+      .maybeSingle();
+    if (basic.error) errorMessage = basic.error.message;
+    else row = basic.data as SettingsRow | null;
+  }
+
+  if (errorMessage) return { error: errorMessage, settings: null };
+
+  const paper = Number(row?.printer_paper_mm) === 58 ? 58 : 80;
+  const value: BankSettingsValue = {
+    bankBin: String(row?.bank_bin ?? ""),
+    bankAccountNumber: String(row?.bank_account_number ?? ""),
+    bankAccountName: String(row?.bank_account_name ?? ""),
+    shopName: String(row?.shop_name ?? "Karaoke"),
+    shopAddress: String(row?.shop_address ?? ""),
+    shopPhone: String(row?.shop_phone ?? ""),
+    receiptFooter: String(row?.receipt_footer ?? "Cảm ơn quý khách"),
+    printerPaperMm: paper,
+    printerAutoPrint: Boolean(row?.printer_auto_print),
+    printerCopies: Math.min(3, Math.max(1, Number(row?.printer_copies) || 1)),
+    printerName: String(row?.printer_name ?? ""),
   };
+  bankCache = { at: Date.now(), value };
+  return { error: null as string | null, settings: value };
 }
 
 export async function prepareCheckout(
@@ -1043,9 +1089,15 @@ export async function prepareCheckout(
 
 export async function recomputeCheckout(invoiceId: string): Promise<PrepareCheckoutResult> {
   const supabase = createDb();
-  const totals = await loadInvoiceTotals(supabase, invoiceId, { requireActive: true });
+  const [totals, bank] = await Promise.all([
+    loadInvoiceTotals(supabase, invoiceId, { requireActive: true }),
+    bankSettings(supabase),
+  ]);
   if (totals.error || !totals.invoice) {
     return { ok: false, error: totals.error ?? "Không tính được hóa đơn." };
+  }
+  if (bank.error || !bank.settings) {
+    return { ok: false, error: bank.error ?? "Không đọc được cài đặt ngân hàng." };
   }
 
   const { error: saveError } = await supabase
@@ -1059,7 +1111,22 @@ export async function recomputeCheckout(invoiceId: string): Promise<PrepareCheck
     .eq("status", "ACTIVE");
   if (saveError) return { ok: false, error: saveError.message };
 
-  return toPaymentCheckout(supabase, invoiceId, true);
+  return {
+    ok: true,
+    invoiceId,
+    roomName: totals.roomName,
+    roomType: totals.roomType,
+    startTime: totals.startTime,
+    hourlyRate: totals.hourlyRate,
+    billableHours: totals.billableHours,
+    roomTotal: totals.roomTotal,
+    itemsTotal: totals.itemsTotal,
+    staffTotal: totals.staffTotal,
+    grandTotal: totals.grandTotal,
+    lines: totals.lines,
+    staffLines: totals.staffLines,
+    ...bank.settings,
+  };
 }
 
 export async function confirmPaid(input: ConfirmPaymentInput): Promise<ActionResult> {
