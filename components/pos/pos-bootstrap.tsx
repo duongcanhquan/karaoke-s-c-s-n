@@ -7,7 +7,7 @@ import {
   invalidatePosClientCache,
   loadPosSnapshot,
 } from "@/lib/pos-client-data";
-import type { Product, Room, RoomSetupItem } from "@/lib/pos-types";
+import type { Product, Room, RoomSetupItem, StaffOption } from "@/lib/pos-types";
 
 export function PosBootstrap({
   cashierName,
@@ -20,6 +20,7 @@ export function PosBootstrap({
   const [ready, setReady] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [staff, setStaff] = useState<StaffOption[]>([]);
   const [bills, setBills] = useState<Record<string, PosBill>>({});
   const [roomSetups, setRoomSetups] = useState<Record<string, RoomSetupItem[]>>(
     {},
@@ -34,6 +35,7 @@ export function PosBootstrap({
         if (cancelled) return;
         setRooms(snapshot.rooms);
         setProducts(snapshot.products);
+        setStaff(snapshot.staff);
         setBills(snapshot.bills);
         setRoomSetups(snapshot.roomSetups);
         setError(null);
@@ -84,7 +86,7 @@ export function PosBootstrap({
       canManage={canManage}
       rooms={rooms}
       products={products}
-      staff={[]}
+      staff={staff}
       bills={bills}
       roomSetups={roomSetups}
     />

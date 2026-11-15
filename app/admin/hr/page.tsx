@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import { LoadError } from "@/components/load-error";
 import {
   ShiftBoard,
+  type HrTab,
   type PayrollLine,
   type ShiftRow,
   type StaffMember,
@@ -26,7 +27,13 @@ function HrFallback() {
   );
 }
 
-async function HrContent() {
+function resolveHrTab(tab: string | undefined): HrTab {
+  if (tab === "shifts") return "shifts";
+  if (tab === "payroll") return "payroll";
+  return "staff";
+}
+
+async function HrContent({ active }: { active: HrTab }) {
   await connection();
   const monthKey = currentVietnamYearMonth();
   const monthLabel = formatVietnamMonthLabel(monthKey);
@@ -114,7 +121,7 @@ async function HrContent() {
           message={error.message}
           hint="Nếu thiếu cột display_name / giá phục vụ: chạy update_display_names_rates.sql."
         />
-        <ShiftBoard staff={[]} shifts={[]} payroll={[]} shopProfit={0} />
+        <ShiftBoard staff={[]} shifts={[]} payroll={[]} shopProfit={0} active={active} />
       </div>
     );
   }
@@ -159,7 +166,7 @@ async function HrContent() {
   }
 
   for (const shift of payResult.data ?? []) {
-    if (shift.total_salary === null) continue;
+    if (shift.total_salary == null) continue;
     const row = payrollRow(
       String(shift.user_id),
       relatedDisplayName(shift.users, "Nhân viên"),
@@ -186,16 +193,25 @@ async function HrContent() {
     .sort((a, b) => a.name.localeCompare(b.name, "vi"));
 
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground">
-        Bảng lương theo {monthLabel} (giờ Việt Nam). Chi tiết theo kỳ xem Tài chính → Tổng hợp.
-      </p>
-      <ShiftBoard staff={staff} shifts={shifts} payroll={payroll} shopProfit={shopProfit} />
-    </div>
+    <ShiftBoard
+      staff={staff}
+      shifts={shifts}
+      payroll={payroll}
+      shopProfit={shopProfit}
+      active={active}
+      monthLabel={monthLabel}
+    />
   );
 }
 
-export default function HrPage() {
+export default async function HrPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const params = await searchParams;
+  const active = resolveHrTab(params.tab);
+
   return (
     <section className="flex flex-col gap-4">
       <div>
@@ -205,7 +221,7 @@ export default function HrPage() {
         </p>
       </div>
       <Suspense fallback={<HrFallback />}>
-        <HrContent />
+        <HrContent active={active} />
       </Suspense>
     </section>
   );

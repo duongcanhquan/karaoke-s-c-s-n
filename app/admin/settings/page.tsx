@@ -1,9 +1,15 @@
 import { Suspense } from "react";
 import { getShopSettings } from "@/app/actions/settings";
-import { SettingsBoard } from "@/components/admin/settings-board";
+import { SettingsBoard, type SettingsTab } from "@/components/admin/settings-board";
 import { LoadError } from "@/components/load-error";
 
-async function SettingsContent() {
+function resolveSettingsTab(tab: string | undefined): SettingsTab {
+  if (tab === "bank") return "bank";
+  if (tab === "printer") return "printer";
+  return "shop";
+}
+
+async function SettingsContent({ active }: { active: SettingsTab }) {
   const result = await getShopSettings();
   if (!result.ok) {
     return (
@@ -13,10 +19,17 @@ async function SettingsContent() {
       />
     );
   }
-  return <SettingsBoard settings={result.settings} />;
+  return <SettingsBoard settings={result.settings} initialTab={active} />;
 }
 
-export default function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const params = await searchParams;
+  const active = resolveSettingsTab(params.tab);
+
   return (
     <section className="flex flex-col gap-4">
       <div>
@@ -33,7 +46,7 @@ export default function SettingsPage() {
           />
         }
       >
-        <SettingsContent />
+        <SettingsContent active={active} />
       </Suspense>
     </section>
   );

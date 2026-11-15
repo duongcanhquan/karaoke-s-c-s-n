@@ -124,7 +124,17 @@ export function PaymentDialog({
                   {formatVnd(checkout.itemsTotal)}
                 </span>
               </div>
-              {checkout.staffTotal > 0 ? (
+              {(checkout.staffLines ?? []).map((line) => (
+                <div key={line.bookingId} className="flex justify-between gap-3 text-base">
+                  <span className="min-w-0 truncate">
+                    {line.name} · {line.hours}h
+                  </span>
+                  <span className="shrink-0 font-mono font-bold tabular-nums">
+                    {formatVnd(line.amount)}
+                  </span>
+                </div>
+              ))}
+              {checkout.staffTotal > 0 && !(checkout.staffLines ?? []).length ? (
                 <div className="flex justify-between gap-3 text-base">
                   <span>Phục vụ</span>
                   <span className="font-mono font-bold tabular-nums">

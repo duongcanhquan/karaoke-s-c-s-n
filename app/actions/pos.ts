@@ -3,15 +3,18 @@
 import { revalidatePath } from "next/cache";
 import {
   availableQty,
+  hoursBetweenClockTimes,
   lineNeedsAudit,
   staffCustomerCharge,
 } from "@/lib/billing";
 import { checkAdminPin } from "@/lib/admin-pin";
 import { bustPosCache } from "@/lib/cache-tags";
-import { relatedDisplayName } from "@/lib/display-name";
+import { displayLabel, relatedDisplayName } from "@/lib/display-name";
 import { billableHours, roundMoney } from "@/lib/money";
+import { isMissingDisplayNameError, looseRows } from "@/lib/supabase-errors";
 import type {
   ActionResult,
+  AssignStaffResult,
   ConfirmPaymentInput,
   PaidBillDetail,
   PaymentMethod,
@@ -19,6 +22,8 @@ import type {
   PrepareCheckoutResult,
   ReceiptLine,
   RevenuePeriod,
+  StaffBooking,
+  StaffReceiptLine,
   StockAuditLine,
 } from "@/lib/pos-types";
 import {
@@ -434,22 +439,102 @@ export async function adjustInvoiceItem(
   return { ok: true };
 }
 
+function vietnamClockToIso(hhMm: string, baseIso: string) {
+  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(hhMm.trim());
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return null;
+
+  const base = new Date(baseIso);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(base);
+  const year = Number(parts.find((p) => p.type === "year")?.value);
+  const month = Number(parts.find((p) => p.type === "month")?.value);
+  const day = Number(parts.find((p) => p.type === "day")?.value);
+  if (!year || !month || !day) return null;
+
+  // Build as Vietnam local wall time → UTC via known offset trick.
+  const asUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  // Asia/Ho_Chi_Minh is UTC+7 year-round.
+  return new Date(asUtc.getTime() - 7 * 60 * 60 * 1000).toISOString();
+}
+
 export async function assignStaffBooking(input: {
   invoiceId: string;
   staffId: string;
-  hoursWorked: number;
-  customerRate: number;
-  staffPayoutRate: number;
-}): Promise<ActionResult> {
-  const hours = roundMoney(Number(input.hoursWorked));
-  const customerRate = roundMoney(Number(input.customerRate));
-  const payoutRate = roundMoney(Number(input.staffPayoutRate));
-
+  startClock: string;
+  endClock: string;
+  customerRate?: number;
+  staffPayoutRate?: number;
+}): Promise<AssignStaffResult> {
   if (!input.invoiceId) return { ok: false, error: "Không có hóa đơn đang mở." };
   if (!input.staffId) return { ok: false, error: "Chọn nhân viên phục vụ." };
-  if (!Number.isFinite(hours) || hours <= 0) {
-    return { ok: false, error: "Số giờ phải lớn hơn 0." };
+
+  const hours = hoursBetweenClockTimes(input.startClock, input.endClock);
+  if (hours === null || hours <= 0) {
+    return { ok: false, error: "Giờ từ / đến không hợp lệ (dùng HH:MM)." };
   }
+
+  const supabase = createDb();
+  const { data: invoice, error: invoiceError } = await activeInvoice(supabase, input.invoiceId);
+  if (invoiceError) return { ok: false, error: invoiceError.message || "Không đọc được hóa đơn." };
+  if (!invoice) return { ok: false, error: "Hóa đơn không còn mở." };
+
+  let staffQuery = await supabase
+    .from("users")
+    .select("id, name, display_name, role, customer_rate, staff_payout_rate")
+    .eq("id", input.staffId)
+    .maybeSingle();
+  if (staffQuery.error && isMissingDisplayNameError(staffQuery.error.message)) {
+    staffQuery = (await supabase
+      .from("users")
+      .select("id, name, role, customer_rate, staff_payout_rate")
+      .eq("id", input.staffId)
+      .maybeSingle()) as typeof staffQuery;
+  }
+  if (
+    staffQuery.error &&
+    (staffQuery.error.message.toLowerCase().includes("customer_rate") ||
+      staffQuery.error.message.toLowerCase().includes("staff_payout"))
+  ) {
+    staffQuery = (await supabase
+      .from("users")
+      .select("id, name, display_name, role")
+      .eq("id", input.staffId)
+      .maybeSingle()) as typeof staffQuery;
+    if (staffQuery.error && isMissingDisplayNameError(staffQuery.error.message)) {
+      staffQuery = (await supabase
+        .from("users")
+        .select("id, name, role")
+        .eq("id", input.staffId)
+        .maybeSingle()) as typeof staffQuery;
+    }
+  }
+  if (staffQuery.error) return { ok: false, error: staffQuery.error.message };
+  if (!staffQuery.data) return { ok: false, error: "Không tìm thấy nhân viên." };
+  if (String(staffQuery.data.role) !== "SERVICE_STAFF") {
+    return { ok: false, error: "Chỉ gán được nhân viên phục vụ." };
+  }
+
+  const customerRate = roundMoney(
+    Number(
+      input.customerRate !== undefined
+        ? input.customerRate
+        : (staffQuery.data as { customer_rate?: unknown }).customer_rate ?? 0,
+    ),
+  );
+  const payoutRate = roundMoney(
+    Number(
+      input.staffPayoutRate !== undefined
+        ? input.staffPayoutRate
+        : (staffQuery.data as { staff_payout_rate?: unknown }).staff_payout_rate ?? 0,
+    ),
+  );
   if (!Number.isFinite(customerRate) || customerRate < 0) {
     return { ok: false, error: "Giá khách phải là số không âm." };
   }
@@ -460,24 +545,71 @@ export async function assignStaffBooking(input: {
     return { ok: false, error: "Tiền trả nhân viên không được cao hơn giá khách." };
   }
 
-  const supabase = createDb();
-  const { data: invoice, error: invoiceError } = await activeInvoice(supabase, input.invoiceId);
-  const invoiceFailure = fail(invoiceError, "Không đọc được hóa đơn.");
-  if (invoiceFailure) return invoiceFailure;
-  if (!invoice) return { ok: false, error: "Hóa đơn không còn mở." };
+  const startIso = vietnamClockToIso(input.startClock, String(invoice.start_time));
+  let endIso = vietnamClockToIso(input.endClock, String(invoice.start_time));
+  if (!startIso || !endIso) {
+    return { ok: false, error: "Giờ từ / đến không hợp lệ." };
+  }
+  if (new Date(endIso).getTime() <= new Date(startIso).getTime()) {
+    endIso = new Date(new Date(endIso).getTime() + 24 * 60 * 60 * 1000).toISOString();
+  }
 
-  const { error } = await supabase.from("invoice_staff_bookings").insert({
-    invoice_id: input.invoiceId,
-    staff_id: input.staffId,
-    hours_worked: hours,
-    customer_rate: customerRate,
-    staff_payout_rate: payoutRate,
-  });
+  const staffName = displayLabel(
+    String(staffQuery.data.name),
+    (staffQuery.data as { display_name?: unknown }).display_name as string | undefined,
+  );
 
-  const insertFailure = fail(error, "Không gán được nhân viên.");
-  if (insertFailure) return insertFailure;
+  let insertResult = await supabase
+    .from("invoice_staff_bookings")
+    .insert({
+      invoice_id: input.invoiceId,
+      staff_id: input.staffId,
+      hours_worked: hours,
+      customer_rate: customerRate,
+      staff_payout_rate: payoutRate,
+      start_time: startIso,
+      end_time: endIso,
+    })
+    .select("id, staff_id, hours_worked, customer_rate, staff_payout_rate, profit, start_time, end_time")
+    .maybeSingle();
 
-  return { ok: true };
+  if (
+    insertResult.error &&
+    (insertResult.error.message.toLowerCase().includes("start_time") ||
+      insertResult.error.message.toLowerCase().includes("end_time"))
+  ) {
+    insertResult = (await supabase
+      .from("invoice_staff_bookings")
+      .insert({
+        invoice_id: input.invoiceId,
+        staff_id: input.staffId,
+        hours_worked: hours,
+        customer_rate: customerRate,
+        staff_payout_rate: payoutRate,
+      })
+      .select("id, staff_id, hours_worked, customer_rate, staff_payout_rate, profit")
+      .maybeSingle()) as typeof insertResult;
+  }
+
+  if (insertResult.error) {
+    return { ok: false, error: insertResult.error.message || "Không gán được nhân viên." };
+  }
+  if (!insertResult.data) return { ok: false, error: "Không gán được nhân viên." };
+
+  const row = insertResult.data as Record<string, unknown>;
+  const booking: StaffBooking = {
+    id: String(row.id),
+    staff_id: String(row.staff_id),
+    staff_name: staffName,
+    hours_worked: Number(row.hours_worked),
+    customer_rate: Number(row.customer_rate),
+    staff_payout_rate: Number(row.staff_payout_rate),
+    profit: Number(row.profit ?? customerRate - payoutRate),
+    start_time: row.start_time != null ? String(row.start_time) : startIso,
+    end_time: row.end_time != null ? String(row.end_time) : endIso,
+  };
+
+  return { ok: true, booking };
 }
 
 export async function removeStaffBooking(bookingId: string): Promise<ActionResult> {
@@ -672,18 +804,60 @@ async function loadInvoiceTotals(
     });
   }
 
-  const { data: bookings, error: bookingError } = await supabase
-    .from("invoice_staff_bookings")
-    .select("hours_worked, customer_rate")
-    .eq("invoice_id", invoiceId);
-  if (bookingError) return { error: bookingError.message };
+  let bookingsQuery = looseRows(
+    await supabase
+      .from("invoice_staff_bookings")
+      .select(
+        "id, hours_worked, customer_rate, start_time, end_time, users(name, display_name)",
+      )
+      .eq("invoice_id", invoiceId),
+  );
+  if (isMissingDisplayNameError(bookingsQuery.error?.message)) {
+    bookingsQuery = looseRows(
+      await supabase
+        .from("invoice_staff_bookings")
+        .select("id, hours_worked, customer_rate, start_time, end_time, users(name)")
+        .eq("invoice_id", invoiceId),
+    );
+  }
+  if (
+    bookingsQuery.error &&
+    (bookingsQuery.error.message.toLowerCase().includes("start_time") ||
+      bookingsQuery.error.message.toLowerCase().includes("end_time"))
+  ) {
+    bookingsQuery = looseRows(
+      await supabase
+        .from("invoice_staff_bookings")
+        .select("id, hours_worked, customer_rate, users(name, display_name)")
+        .eq("invoice_id", invoiceId),
+    );
+    if (isMissingDisplayNameError(bookingsQuery.error?.message)) {
+      bookingsQuery = looseRows(
+        await supabase
+          .from("invoice_staff_bookings")
+          .select("id, hours_worked, customer_rate, users(name)")
+          .eq("invoice_id", invoiceId),
+      );
+    }
+  }
+  if (bookingsQuery.error) return { error: bookingsQuery.error.message };
+
+  const staffLines: StaffReceiptLine[] = (bookingsQuery.data ?? []).map((booking) => {
+    const hours = Number(booking.hours_worked);
+    const rate = Number(booking.customer_rate);
+    return {
+      bookingId: String(booking.id),
+      name: relatedName(booking.users, "Phục vụ"),
+      hours,
+      rate,
+      amount: staffCustomerCharge(hours, rate),
+      startTime: booking.start_time != null ? String(booking.start_time) : null,
+      endTime: booking.end_time != null ? String(booking.end_time) : null,
+    };
+  });
 
   const staffTotal = roundMoney(
-    (bookings ?? []).reduce(
-      (sum, booking) =>
-        sum + staffCustomerCharge(Number(booking.hours_worked), Number(booking.customer_rate)),
-      0,
-    ),
+    staffLines.reduce((sum, line) => sum + line.amount, 0),
   );
 
   const end =
@@ -714,6 +888,7 @@ async function loadInvoiceTotals(
     roomTotal,
     itemsTotal,
     staffTotal,
+    staffLines,
     serviceTotalAmount,
     grandTotal,
     lines,
@@ -802,6 +977,7 @@ async function toPaymentCheckout(
     staffTotal: totals.staffTotal,
     grandTotal: totals.grandTotal,
     lines: totals.lines,
+    staffLines: totals.staffLines,
     ...bank.settings,
   };
 }
@@ -851,6 +1027,7 @@ export async function prepareCheckout(
     staffTotal: totals.staffTotal,
     grandTotal: totals.grandTotal,
     lines: totals.lines,
+    staffLines: totals.staffLines,
     ...bank.settings,
   };
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { clockIn, clockOut, createStaff, deleteStaff, updateStaff } from "@/app/actions/hr";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,10 +22,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { selectClass } from "@/lib/field-class";
 import { formatVnd } from "@/lib/money";
 import { roleLabel, staffRoles, type StaffRole } from "@/lib/session";
+
+export type HrTab = "staff" | "shifts" | "payroll";
 
 export type StaffMember = {
   id: string;
@@ -210,12 +214,22 @@ export function ShiftBoard({
   shifts,
   payroll = [],
   shopProfit = 0,
+  active = "staff",
+  monthLabel,
 }: {
   staff: StaffMember[];
   shifts: ShiftRow[];
   payroll?: PayrollLine[];
   shopProfit?: number;
+  active?: HrTab;
+  monthLabel?: string;
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const tabFromUrl = searchParams.get("tab") ?? (active === "staff" ? null : active);
+  const current: HrTab =
+    tabFromUrl === "shifts" || tabFromUrl === "payroll" ? tabFromUrl : "staff";
   const [pending, startTransition] = useTransition();
   const [staffError, setStaffError] = useState<string | null>(null);
   const [shiftError, setShiftError] = useState<string | null>(null);
@@ -243,7 +257,29 @@ export function ShiftBoard({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <Tabs
+      value={current}
+      onValueChange={(value) => {
+        const next =
+          value === "shifts" ? "shifts" : value === "payroll" ? "payroll" : "staff";
+        const href = next === "staff" ? pathname : `${pathname}?tab=${next}`;
+        router.replace(href, { scroll: false });
+      }}
+      className="gap-4"
+    >
+      <TabsList className="h-auto w-full flex-wrap justify-start gap-1 p-1 sm:w-fit">
+        <TabsTrigger value="staff" className="min-h-11 px-4 text-base font-bold">
+          Nhân viên
+        </TabsTrigger>
+        <TabsTrigger value="shifts" className="min-h-11 px-4 text-base font-bold">
+          Ca làm
+        </TabsTrigger>
+        <TabsTrigger value="payroll" className="min-h-11 px-4 text-base font-bold">
+          Lương
+        </TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="staff" className="mt-0">
       <Card>
         <CardHeader>
           <CardTitle>Quản lý nhân viên</CardTitle>
@@ -349,13 +385,17 @@ export function ShiftBoard({
           </div>
         </CardContent>
       </Card>
+      </TabsContent>
 
+      <TabsContent value="payroll" className="mt-0">
       <Card>
         <CardHeader>
           <CardTitle>Lương và hoa hồng</CardTitle>
           <CardDescription>
-            Lương ca đã chốt cộng tiền nhân viên nhận từ booking trên hóa đơn đã thanh toán.
-            Lợi nhuận quán là phần khách trả trừ phần trả nhân viên.
+            {monthLabel
+              ? `Theo ${monthLabel} (giờ Việt Nam). Lương ca đã chốt + hoa hồng phục vụ từ hóa đơn đã thanh toán.`
+              : "Lương ca đã chốt cộng tiền nhân viên nhận từ booking trên hóa đơn đã thanh toán."}{" "}
+            Chi tiết theo kỳ xem Tài chính → Tổng hợp.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -401,7 +441,9 @@ export function ShiftBoard({
           )}
         </CardContent>
       </Card>
+      </TabsContent>
 
+      <TabsContent value="shifts" className="mt-0 flex flex-col gap-4">
       <Card>
         <CardHeader>
           <CardTitle>Vào ca</CardTitle>
@@ -546,6 +588,7 @@ export function ShiftBoard({
           )}
         </CardContent>
       </Card>
+      </TabsContent>
 
       <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent className="sm:max-w-md">
@@ -665,6 +708,6 @@ export function ShiftBoard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </Tabs>
   );
 }

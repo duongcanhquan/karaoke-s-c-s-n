@@ -29,7 +29,7 @@ async function MenuPanel() {
   return <ProductBoard products={products} />;
 }
 
-async function InventoryPanel() {
+async function InventoryPanel({ inv }: { inv?: string }) {
   const data = await getCachedInventoryData();
   if (data.productsError) {
     return (
@@ -39,6 +39,12 @@ async function InventoryPanel() {
       />
     );
   }
+  const initialTab =
+    inv === "stocktake" || inv === "audit"
+      ? "stocktake"
+      : inv === "catalog" || inv === "units" || inv === "ledger"
+        ? inv
+        : "receive";
   return (
     <div className="flex flex-col gap-4">
       {data.movementsError ? (
@@ -57,6 +63,7 @@ async function InventoryPanel() {
         products={data.products}
         movements={data.movements}
         units={data.units}
+        initialTab={initialTab}
       />
     </div>
   );
@@ -65,7 +72,7 @@ async function InventoryPanel() {
 export default async function CatalogPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; inv?: string }>;
 }) {
   const params = await searchParams;
   const active = params.tab === "inventory" ? "inventory" : "menu";
@@ -90,7 +97,7 @@ export default async function CatalogPage({
         inventoryPanel={
           active === "inventory" ? (
             <Suspense fallback={<PanelFallback />}>
-              <InventoryPanel />
+              <InventoryPanel inv={params.inv} />
             </Suspense>
           ) : null
         }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   savePrinterSettings,
   saveShopBank,
@@ -19,6 +20,8 @@ import {
   savePrinterPrefsLocal,
   type ReceiptShopInfo,
 } from "@/lib/printer-prefs";
+
+export type SettingsTab = "shop" | "bank" | "printer";
 
 const fieldClass = "min-h-11";
 
@@ -40,8 +43,15 @@ export function SettingsBoard({
   initialTab = "shop",
 }: {
   settings: ShopSettings;
-  initialTab?: "shop" | "bank" | "printer";
+  initialTab?: SettingsTab;
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const tabFromUrl =
+    searchParams.get("tab") ?? (initialTab === "shop" ? null : initialTab);
+  const current: SettingsTab =
+    tabFromUrl === "bank" || tabFromUrl === "printer" ? tabFromUrl : "shop";
   const [pending, startTransition] = useTransition();
   const [shopError, setShopError] = useState<string | null>(null);
   const [bankError, setBankError] = useState<string | null>(null);
@@ -54,7 +64,16 @@ export function SettingsBoard({
   }, [settings]);
 
   return (
-    <Tabs defaultValue={initialTab} className="gap-4">
+    <Tabs
+      value={current}
+      onValueChange={(value) => {
+        const next =
+          value === "bank" ? "bank" : value === "printer" ? "printer" : "shop";
+        const href = next === "shop" ? pathname : `${pathname}?tab=${next}`;
+        router.replace(href, { scroll: false });
+      }}
+      className="gap-4"
+    >
       <TabsList className="h-auto w-full flex-wrap justify-start gap-1 p-1 sm:w-fit">
         <TabsTrigger value="shop" className="min-h-11 px-4 text-base font-bold">
           Thông tin quán

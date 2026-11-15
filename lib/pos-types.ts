@@ -45,12 +45,17 @@ export type StaffBooking = {
   customer_rate: number;
   staff_payout_rate: number;
   profit: number;
+  start_time: string | null;
+  end_time: string | null;
 };
 
 export type StaffOption = {
   id: string;
   name: string;
+  displayName: string;
   role: string;
+  customerRate: number;
+  staffPayoutRate: number;
 };
 
 export type RoomSetupItem = {
@@ -66,6 +71,10 @@ export type StockAuditLine = {
 };
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
+
+export type AssignStaffResult =
+  | { ok: true; booking: StaffBooking }
+  | { ok: false; error: string };
 
 export type PaymentMethod = "CASH" | "QR" | "SPLIT";
 
@@ -129,6 +138,16 @@ export type PeriodRevenue = {
 
 export type MonthlyRevenue = PeriodRevenue;
 
+export type StaffReceiptLine = {
+  bookingId: string;
+  name: string;
+  hours: number;
+  rate: number;
+  amount: number;
+  startTime: string | null;
+  endTime: string | null;
+};
+
 export type PaymentCheckout = {
   invoiceId: string;
   roomName: string;
@@ -141,6 +160,7 @@ export type PaymentCheckout = {
   staffTotal: number;
   grandTotal: number;
   lines: ReceiptLine[];
+  staffLines: StaffReceiptLine[];
   bankBin: string;
   bankAccountNumber: string;
   bankAccountName: string;

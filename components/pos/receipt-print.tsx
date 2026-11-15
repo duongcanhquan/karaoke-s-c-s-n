@@ -80,6 +80,33 @@ export function printReceipt(input: {
     )
     .join("");
 
+  const staffLinesHtml = (payment.staffLines ?? [])
+    .map(
+      (line) => `
+      <tr>
+        <td>${escapeHtml(line.name)}${
+          line.startTime && line.endTime
+            ? ` <span class="muted">(${escapeHtml(
+                new Intl.DateTimeFormat("vi-VN", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  hourCycle: "h23",
+                }).format(new Date(line.startTime)),
+              )}–${escapeHtml(
+                new Intl.DateTimeFormat("vi-VN", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  hourCycle: "h23",
+                }).format(new Date(line.endTime)),
+              )})</span>`
+            : ""
+        }</td>
+        <td class="num">${line.hours}h</td>
+        <td class="num">${formatVnd(line.amount)}</td>
+      </tr>`,
+    )
+    .join("");
+
   const addressBlock = [
     shop.shopAddress ? `<div class="muted">${escapeHtml(shop.shopAddress)}</div>` : "",
     shop.shopPhone ? `<div class="muted">ĐT: ${escapeHtml(shop.shopPhone)}</div>` : "",
@@ -127,6 +154,14 @@ export function printReceipt(input: {
     <thead><tr><th>Món</th><th class="num">SL</th><th class="num">Tiền</th></tr></thead>
     <tbody>${linesHtml || `<tr><td colspan="3">Không có món</td></tr>`}</tbody>
   </table>
+  ${
+    staffLinesHtml
+      ? `<hr /><table>
+    <thead><tr><th>Dịch vụ</th><th class="num">Giờ</th><th class="num">Tiền</th></tr></thead>
+    <tbody>${staffLinesHtml}</tbody>
+  </table>`
+      : ""
+  }
   <hr />
   <div class="row"><span>Đồ dùng</span><span>${formatVnd(payment.itemsTotal)}</span></div>
   ${payment.staffTotal > 0 ? `<div class="row"><span>Phục vụ</span><span>${formatVnd(payment.staffTotal)}</span></div>` : ""}
@@ -176,6 +211,7 @@ export function printTestReceipt(shop?: ReceiptShopInfo) {
       { productId: "1", name: "Nước suối", qty: 1, price: 15000, amount: 15000, canReduce: false },
       { productId: "2", name: "Bia", qty: 1, price: 10000, amount: 10000, canReduce: false },
     ],
+    staffLines: [],
     bankBin: "",
     bankAccountNumber: "",
     bankAccountName: "",

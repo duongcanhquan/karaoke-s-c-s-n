@@ -6,16 +6,19 @@ import { LogOut, Minus, Plus } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import {
   adjustInvoiceItem,
+  assignStaffBooking,
   confirmPaid,
   markRoomAvailable,
   prepareCheckout,
   recomputeCheckout,
+  removeStaffBooking,
   startRoom,
 } from "@/app/actions/pos";
 import { RoomLiveTimer } from "@/components/pos/room-live-timer";
 import { WorkModeSwitch } from "@/components/work-mode-switch";
 import { invalidatePosClientCache } from "@/lib/pos-client-data";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Sheet,
   SheetContent,
@@ -25,6 +28,7 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
+import { hoursBetweenClockTimes, staffCustomerCharge } from "@/lib/billing";
 import { labelCategory, productCategories, type ProductCategory } from "@/lib/catalog";
 import { formatVnd } from "@/lib/money";
 import type {
@@ -34,6 +38,7 @@ import type {
   Product,
   Room,
   RoomSetupItem,
+  StaffBooking,
   StaffOption,
   StockAuditLine,
 } from "@/lib/pos-types";
@@ -67,8 +72,26 @@ export type PosBill = {
   serviceTotal: number;
   staffTotal: number;
   items: InvoiceItem[];
-  bookings: { id: string }[];
+  bookings: StaffBooking[];
 };
+
+function clockLabel(iso: string | null) {
+  if (!iso) return "—";
+  return new Intl.DateTimeFormat("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(iso));
+}
+
+function nowVietnamClock() {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date());
+}
 
 function notify(result: ActionResult, success: string) {
   if (result.ok) {
@@ -111,7 +134,7 @@ export function PosKiosk({
   canManage = false,
   rooms: roomsProp,
   products,
-  staff: _staff,
+  staff: staffProp,
   bills: billsProp,
   roomSetups,
 }: {
@@ -123,10 +146,10 @@ export function PosKiosk({
   bills: Record<string, PosBill>;
   roomSetups: Record<string, RoomSetupItem[]>;
 }) {
-  void _staff;
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState(false);
   const [rooms, setRooms] = useState(roomsProp);
+  const [staff, setStaff] = useState(staffProp);
   const [bills, setBills] = useState(billsProp);
   const [openRoomId, setOpenRoomId] = useState<string | null>(null);
   const [category, setCategory] = useState<ProductCategory | "ALL">("ALL");
@@ -144,13 +167,31 @@ export function PosKiosk({
     productId: string;
     refreshPayment?: boolean;
   } | null>(null);
+  const [serviceStaffId, setServiceStaffId] = useState("");
+  const [serviceStart, setServiceStart] = useState(nowVietnamClock);
+  const [serviceEnd, setServiceEnd] = useState("");
+  const [serviceRate, setServiceRate] = useState("");
+  const [servicePayout, setServicePayout] = useState("");
 
   useEffect(() => {
     setRooms(roomsProp);
   }, [roomsProp]);
+
+  useEffect(() => {
+    setStaff(staffProp);
+  }, [staffProp]);
+
   useEffect(() => {
     setBills(billsProp);
   }, [billsProp]);
+
+  useEffect(() => {
+    if (!serviceStaffId) return;
+    const member = staff.find((item) => item.id === serviceStaffId);
+    if (!member) return;
+    setServiceRate(String(member.customerRate || ""));
+    setServicePayout(String(member.staffPayoutRate || ""));
+  }, [serviceStaffId, staff]);
 
   const room = rooms.find((item) => item.id === openRoomId) ?? null;
   const bill = room ? bills[room.id] ?? null : null;
@@ -237,6 +278,111 @@ export function PosKiosk({
         return;
       }
       toast.add({ title: success, type: "success" });
+    });
+  }
+
+  function addServiceBooking() {
+    if (!room || !bill) return;
+    const roomId = room.id;
+    const invoiceId = bill.id;
+    const hours = hoursBetweenClockTimes(serviceStart, serviceEnd);
+    const rate = Number(serviceRate);
+    const payout = Number(servicePayout);
+    if (!serviceStaffId) {
+      toast.add({ title: "Chọn nhân viên phục vụ", type: "error" });
+      return;
+    }
+    if (hours === null || hours <= 0) {
+      toast.add({ title: "Giờ từ / đến không hợp lệ", type: "error" });
+      return;
+    }
+    startTransition(async () => {
+      const result = await assignStaffBooking({
+        invoiceId,
+        staffId: serviceStaffId,
+        startClock: serviceStart,
+        endClock: serviceEnd,
+        customerRate: rate,
+        staffPayoutRate: payout,
+      });
+      if (!result.ok) {
+        toast.add({
+          title: "Không thêm được dịch vụ",
+          description: result.error,
+          type: "error",
+        });
+        return;
+      }
+      setBills((current) => {
+        const existing = current[roomId];
+        if (!existing) return current;
+        const bookings = [...existing.bookings, result.booking];
+        return {
+          ...current,
+          [roomId]: {
+            ...existing,
+            bookings,
+            staffTotal: bookings.reduce(
+              (sum, booking) =>
+                sum + staffCustomerCharge(booking.hours_worked, booking.customer_rate),
+              0,
+            ),
+          },
+        };
+      });
+      setServiceEnd("");
+      toast.add({ title: `Đã thêm ${result.booking.staff_name}`, type: "success" });
+    });
+  }
+
+  function deleteServiceBooking(bookingId: string) {
+    if (!room || !bill) return;
+    const roomId = room.id;
+    const previous = bill.bookings;
+    setBills((current) => {
+      const existing = current[roomId];
+      if (!existing) return current;
+      const bookings = existing.bookings.filter((booking) => booking.id !== bookingId);
+      return {
+        ...current,
+        [roomId]: {
+          ...existing,
+          bookings,
+          staffTotal: bookings.reduce(
+            (sum, booking) =>
+              sum + staffCustomerCharge(booking.hours_worked, booking.customer_rate),
+            0,
+          ),
+        },
+      };
+    });
+    startTransition(async () => {
+      const result = await removeStaffBooking(bookingId);
+      if (!result.ok) {
+        setBills((current) => {
+          const existing = current[roomId];
+          if (!existing) return current;
+          return {
+            ...current,
+            [roomId]: {
+              ...existing,
+              bookings: previous,
+              staffTotal: previous.reduce(
+                (sum, booking) =>
+                  sum + staffCustomerCharge(booking.hours_worked, booking.customer_rate),
+                0,
+              ),
+            },
+          };
+        });
+        toast.add({
+          title: "Không xóa được",
+          description: result.error,
+          type: "error",
+        });
+        return;
+      }
+      toast.add({ title: "Đã xóa dịch vụ", type: "success" });
     });
   }
 
@@ -613,6 +759,9 @@ export function PosKiosk({
                     <TabsTrigger value="menu" className="min-h-14 flex-1 text-lg font-bold">
                       Thực đơn
                     </TabsTrigger>
+                    <TabsTrigger value="service" className="min-h-14 flex-1 text-lg font-bold">
+                      Dịch vụ
+                    </TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="bill" className="min-h-0 overflow-y-auto p-4">
@@ -630,6 +779,14 @@ export function PosKiosk({
                     <p className="mb-3 text-base text-slate-600">
                       Đã gọi thêm:{" "}
                       <span className="font-mono font-bold text-slate-950">{orderedCount}</span> món
+                      {bill.staffTotal > 0 ? (
+                        <>
+                          {" · "}Dịch vụ:{" "}
+                          <span className="font-mono font-bold text-slate-950">
+                            {formatVnd(bill.staffTotal)}
+                          </span>
+                        </>
+                      ) : null}
                     </p>
 
                     <BillList
@@ -638,6 +795,35 @@ export function PosKiosk({
                       onAdd={(productId) => runAdd(productId, "Đã thêm 1")}
                       onReduce={(productId) => requestReduce(bill.id, productId)}
                     />
+
+                    {bill.bookings.length > 0 ? (
+                      <ul className="mt-4 flex flex-col gap-2">
+                        {bill.bookings.map((booking) => (
+                          <li
+                            key={booking.id}
+                            className="flex items-center justify-between gap-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-base font-semibold text-slate-950">
+                                {booking.staff_name}
+                              </p>
+                              <p className="text-sm text-slate-600">
+                                {clockLabel(booking.start_time)}–{clockLabel(booking.end_time)} ·{" "}
+                                {booking.hours_worked} giờ
+                              </p>
+                            </div>
+                            <span className="font-mono text-lg font-bold tabular-nums text-slate-950">
+                              {formatVnd(
+                                staffCustomerCharge(
+                                  booking.hours_worked,
+                                  booking.customer_rate,
+                                ),
+                              )}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
 
                     <Button
                       type="button"
@@ -695,6 +881,159 @@ export function PosKiosk({
                         ))}
                       </ul>
                     )}
+                  </TabsContent>
+
+                  <TabsContent value="service" className="min-h-0 overflow-y-auto p-4">
+                    <div className="mb-4 rounded-2xl border border-violet-200 bg-violet-50 p-4">
+                      <p className="text-base font-bold text-slate-950">Thêm dịch vụ phục vụ</p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Tên hiển thị nhân viên sẽ hiện trên bill như một dịch vụ. Giá lấy từ setup HR.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                      <label className="flex flex-col gap-1">
+                        <span className="text-sm font-medium text-slate-800">Nhân viên</span>
+                        <select
+                          value={serviceStaffId}
+                          disabled={locked || staff.length === 0}
+                          onChange={(event) => setServiceStaffId(event.target.value)}
+                          className="min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-base"
+                        >
+                          <option value="">
+                            {staff.length === 0
+                              ? "Chưa có NV phục vụ — thêm ở Nhân sự"
+                              : "Chọn nhân viên"}
+                          </option>
+                          {staff.map((member) => (
+                            <option key={member.id} value={member.id}>
+                              {member.displayName} · {formatVnd(member.customerRate)}/giờ
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="flex flex-col gap-1">
+                          <span className="text-sm font-medium text-slate-800">Từ giờ</span>
+                          <Input
+                            type="time"
+                            value={serviceStart}
+                            disabled={locked}
+                            onChange={(event) => setServiceStart(event.target.value)}
+                            className="min-h-12 text-base"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className="text-sm font-medium text-slate-800">Đến giờ</span>
+                          <Input
+                            type="time"
+                            value={serviceEnd}
+                            disabled={locked}
+                            onChange={(event) => setServiceEnd(event.target.value)}
+                            className="min-h-12 text-base"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="flex flex-col gap-1">
+                          <span className="text-sm font-medium text-slate-800">Giá bán / giờ</span>
+                          <Input
+                            type="number"
+                            inputMode="decimal"
+                            min="0"
+                            value={serviceRate}
+                            disabled={locked}
+                            onChange={(event) => setServiceRate(event.target.value)}
+                            className="min-h-12 font-mono text-base"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className="text-sm font-medium text-slate-800">Giá gốc / giờ</span>
+                          <Input
+                            type="number"
+                            inputMode="decimal"
+                            min="0"
+                            value={servicePayout}
+                            disabled={locked}
+                            onChange={(event) => setServicePayout(event.target.value)}
+                            className="min-h-12 font-mono text-base"
+                          />
+                        </label>
+                      </div>
+
+                      {(() => {
+                        const previewHours = hoursBetweenClockTimes(serviceStart, serviceEnd);
+                        const previewRate = Number(serviceRate) || 0;
+                        if (previewHours === null || previewHours <= 0) return null;
+                        return (
+                          <p className="text-sm text-slate-700">
+                            {previewHours} giờ × {formatVnd(previewRate)} ={" "}
+                            <span className="font-mono font-bold">
+                              {formatVnd(staffCustomerCharge(previewHours, previewRate))}
+                            </span>
+                          </p>
+                        );
+                      })()}
+
+                      <Button
+                        type="button"
+                        className="min-h-14 text-lg font-bold"
+                        disabled={locked || staff.length === 0}
+                        onClick={addServiceBooking}
+                      >
+                        {pending ? "Đang thêm…" : "Thêm vào bill"}
+                      </Button>
+                    </div>
+
+                    <div className="mt-6">
+                      <p className="mb-2 text-base font-semibold text-slate-800">
+                        Đã gắn ({bill.bookings.length})
+                      </p>
+                      {bill.bookings.length === 0 ? (
+                        <p className="text-sm text-slate-500">Chưa có dịch vụ phục vụ.</p>
+                      ) : (
+                        <ul className="flex flex-col gap-2">
+                          {bill.bookings.map((booking) => (
+                            <li
+                              key={booking.id}
+                              className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate font-semibold text-slate-950">
+                                  {booking.staff_name}
+                                </p>
+                                <p className="text-sm text-slate-600">
+                                  {clockLabel(booking.start_time)}–{clockLabel(booking.end_time)} ·{" "}
+                                  {booking.hours_worked} giờ · {formatVnd(booking.customer_rate)}
+                                  /giờ
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <span className="font-mono font-bold tabular-nums">
+                                  {formatVnd(
+                                    staffCustomerCharge(
+                                      booking.hours_worked,
+                                      booking.customer_rate,
+                                    ),
+                                  )}
+                                </span>
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  className="min-h-11"
+                                  disabled={locked}
+                                  onClick={() => deleteServiceBooking(booking.id)}
+                                >
+                                  Xóa
+                                </Button>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   </TabsContent>
                 </Tabs>
               ) : null}

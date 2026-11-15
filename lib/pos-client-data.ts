@@ -9,12 +9,14 @@ import type {
   RoomSetupItem,
   RoomStatus,
   StaffBooking,
+  StaffOption,
 } from "@/lib/pos-types";
 import type { PosBill } from "@/components/pos/pos-kiosk";
 
 export type PosSnapshot = {
   rooms: Room[];
   products: Product[];
+  staff: StaffOption[];
   bills: Record<string, PosBill>;
   roomSetups: Record<string, RoomSetupItem[]>;
   fetchedAt: number;
@@ -57,13 +59,43 @@ async function fetchPosSnapshot(): Promise<PosSnapshot> {
   const setupPromise = supabase
     .from("room_minibar_setup")
     .select("room_id, product_id, default_quantity, products(name, display_name)");
+  const staffPromise = supabase
+    .from("users")
+    .select("id, name, display_name, role, customer_rate, staff_payout_rate")
+    .eq("role", "SERVICE_STAFF")
+    .order("name");
 
-  const [roomsResult, invoiceResult, productsRaw, setupRaw] = await Promise.all([
+  const [roomsResult, invoiceResult, productsRaw, setupRaw, staffRaw] = await Promise.all([
     roomsPromise,
     invoicesPromise,
     productsPromise,
     setupPromise,
+    staffPromise,
   ]);
+
+  let staffResult = looseRows(staffRaw);
+  if (staffResult.error && isMissingDisplayNameError(staffResult.error.message)) {
+    staffResult = looseRows(
+      await supabase
+        .from("users")
+        .select("id, name, role, customer_rate, staff_payout_rate")
+        .eq("role", "SERVICE_STAFF")
+        .order("name"),
+    );
+  }
+  if (
+    staffResult.error &&
+    (staffResult.error.message.toLowerCase().includes("customer_rate") ||
+      staffResult.error.message.toLowerCase().includes("staff_payout"))
+  ) {
+    staffResult = looseRows(
+      await supabase
+        .from("users")
+        .select("id, name, role")
+        .eq("role", "SERVICE_STAFF")
+        .order("name"),
+    );
+  }
 
   let productsResult = looseRows(productsRaw);
   let setupResult = looseRows(setupRaw);
@@ -114,7 +146,7 @@ async function fetchPosSnapshot(): Promise<PosSnapshot> {
       supabase
         .from("invoice_staff_bookings")
         .select(
-          "id, invoice_id, staff_id, hours_worked, customer_rate, staff_payout_rate, profit, users(name, display_name)",
+          "id, invoice_id, staff_id, hours_worked, customer_rate, staff_payout_rate, profit, start_time, end_time, users(name, display_name)",
         )
         .in("invoice_id", invoiceIds),
     ]);
@@ -128,6 +160,20 @@ async function fetchPosSnapshot(): Promise<PosSnapshot> {
           .from("invoice_items")
           .select(
             "id, invoice_id, product_id, initial_qty, ordered_qty, remaining_qty, consumed_qty, price, products(name, is_minibar_item)",
+          )
+          .in("invoice_id", invoiceIds),
+      );
+    }
+    if (
+      bookingsResult.error &&
+      (bookingsResult.error.message.toLowerCase().includes("start_time") ||
+        bookingsResult.error.message.toLowerCase().includes("end_time"))
+    ) {
+      bookingsResult = looseRows(
+        await supabase
+          .from("invoice_staff_bookings")
+          .select(
+            "id, invoice_id, staff_id, hours_worked, customer_rate, staff_payout_rate, profit, users(name, display_name)",
           )
           .in("invoice_id", invoiceIds),
       );
@@ -174,11 +220,13 @@ async function fetchPosSnapshot(): Promise<PosSnapshot> {
     list.push({
       id: String(booking.id),
       staff_id: String(booking.staff_id),
-      staff_name: relatedDisplayName(booking.users, "Nhân viên"),
+      staff_name: relatedDisplayName(booking.users, "Phục vụ"),
       hours_worked: asNumber(booking.hours_worked),
       customer_rate: asNumber(booking.customer_rate),
       staff_payout_rate: asNumber(booking.staff_payout_rate),
       profit: asNumber(booking.profit),
+      start_time: booking.start_time != null ? String(booking.start_time) : null,
+      end_time: booking.end_time != null ? String(booking.end_time) : null,
     });
     bookingsByInvoice.set(invoiceId, list);
   }
@@ -232,9 +280,22 @@ async function fetchPosSnapshot(): Promise<PosSnapshot> {
     roomSetups[roomId].sort((a, b) => a.productName.localeCompare(b.productName, "vi"));
   }
 
+  const staff: StaffOption[] = (staffResult.data ?? []).map((member) => {
+    const name = String(member.name);
+    return {
+      id: String(member.id),
+      name,
+      displayName: displayLabel(name, member.display_name as string | undefined),
+      role: String(member.role),
+      customerRate: asNumber(member.customer_rate),
+      staffPayoutRate: asNumber(member.staff_payout_rate),
+    };
+  });
+
   return {
     rooms,
     products,
+    staff,
     bills,
     roomSetups,
     fetchedAt: Date.now(),

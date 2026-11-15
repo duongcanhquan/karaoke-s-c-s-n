@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   createInventoryUnit,
   deleteInventoryUnit,
@@ -31,6 +32,16 @@ import {
 } from "@/lib/inventory-meta";
 import { formatVnd } from "@/lib/money";
 import { formatVietnamDateTime } from "@/lib/vietnam-time";
+
+export type InventoryTab = "receive" | "stocktake" | "catalog" | "units" | "ledger";
+
+function resolveInventoryTab(value: string | null | undefined): InventoryTab {
+  if (value === "stocktake" || value === "audit") return "stocktake";
+  if (value === "catalog") return "catalog";
+  if (value === "units") return "units";
+  if (value === "ledger") return "ledger";
+  return "receive";
+}
 
 export type InventoryProduct = {
   id: string;
@@ -75,11 +86,18 @@ export function InventoryBoard({
   products,
   movements,
   units,
+  initialTab,
 }: {
   products: InventoryProduct[];
   movements: InventoryMovement[];
   units: InventoryUnit[];
+  initialTab?: InventoryTab;
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // Prefer live URL so tab switches instantly; fall back to server prop on first paint.
+  const active = resolveInventoryTab(searchParams.get("inv") ?? initialTab);
   const [pending, startTransition] = useTransition();
   const [receiveError, setReceiveError] = useState<string | null>(null);
   const [stocktakeError, setStocktakeError] = useState<string | null>(null);
@@ -107,7 +125,19 @@ export function InventoryBoard({
   const totalUnits = packs * perPack + loose;
 
   return (
-    <Tabs defaultValue="receive" className="gap-4">
+    <Tabs
+      value={active}
+      onValueChange={(value) => {
+        const next = resolveInventoryTab(String(value));
+        const params = new URLSearchParams(searchParams.toString());
+        params.set("tab", "inventory");
+        if (next === "receive") params.delete("inv");
+        else params.set("inv", next);
+        const query = params.toString();
+        router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+      }}
+      className="gap-4"
+    >
       <TabsList className="h-auto w-full flex-wrap justify-start gap-1 p-1 sm:w-fit">
         <TabsTrigger value="receive" className="min-h-11 px-4 text-base font-bold">
           Nhập hàng

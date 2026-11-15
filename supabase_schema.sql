@@ -163,6 +163,8 @@ create table if not exists public.invoice_staff_bookings (
   hours_worked numeric(8, 2) not null,
   customer_rate numeric(12, 2) not null,
   staff_payout_rate numeric(12, 2) not null,
+  start_time timestamptz,
+  end_time timestamptz,
   profit numeric(12, 2) generated always as (customer_rate - staff_payout_rate) stored,
   constraint invoice_staff_bookings_invoice_id_fkey
     foreign key (invoice_id) references public.invoices (id) on delete cascade,

@@ -123,6 +123,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.prefetch("/admin/finance?tab=expenses");
     router.prefetch("/admin/finance?tab=summary");
     router.prefetch("/admin/setup?tab=minibar");
+    router.prefetch("/admin/hr?tab=shifts");
+    router.prefetch("/admin/hr?tab=payroll");
+    router.prefetch("/admin/settings?tab=bank");
+    router.prefetch("/admin/settings?tab=printer");
     // Warm POS room data in parallel so opening the kiosk is instant.
     void import("@/lib/pos-client-data").then((mod) => {
       void mod.loadPosSnapshot(false);
