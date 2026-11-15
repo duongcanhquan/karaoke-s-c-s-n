@@ -22,7 +22,7 @@ create table if not exists public.users (
   pay_type text not null default 'SHIFT',
   monthly_salary numeric(12, 2) not null default 0,
   require_clock_in boolean not null default false,
-  constraint users_pin_code_key unique (pin_code),
+  -- PIN có thể trùng giữa các NV; đăng nhập khớp theo tên + PIN.
   constraint users_customer_rate_check check (customer_rate >= 0),
   constraint users_staff_payout_rate_check check (staff_payout_rate >= 0),
   constraint users_rate_order_check check (customer_rate >= staff_payout_rate),

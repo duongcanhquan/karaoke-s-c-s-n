@@ -93,3 +93,7 @@ grant select, insert, update, delete on public.shift_templates to anon, authenti
 grant select, insert, update, delete on public.staff_shift_rates to anon, authenticated;
 grant all on public.shift_templates to service_role;
 grant all on public.staff_shift_rates to service_role;
+
+-- 6) PIN được phép trùng giữa các nhân viên (đăng nhập vẫn theo tên + PIN)
+alter table public.users drop constraint if exists users_pin_code_key;
+drop index if exists public.users_pin_code_key;

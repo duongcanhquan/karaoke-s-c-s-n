@@ -14,7 +14,7 @@ import {
 import { shopBookingProfit, staffPayout } from "@/lib/billing";
 import { displayLabel, relatedDisplayName } from "@/lib/display-name";
 import { roundMoney } from "@/lib/money";
-import { isMissingDisplayNameError, looseRows } from "@/lib/supabase-errors";
+import { isMissingColumnError, isMissingDisplayNameError, looseRows } from "@/lib/supabase-errors";
 import {
   currentVietnamYearMonth,
   formatVietnamMonthLabel,
@@ -32,6 +32,44 @@ function resolveHrTab(tab: string | undefined): HrTab {
   return "staff";
 }
 
+async function loadStaff(supabase: ReturnType<typeof createDb>) {
+  const full = await supabase
+    .from("users")
+    .select(
+      "id, name, display_name, role, pin_code, customer_rate, staff_payout_rate, default_hourly_salary, pay_type, monthly_salary, require_clock_in",
+    )
+    .order("name");
+
+  if (!full.error) return full;
+
+  // Thiếu cột lương mới — thử bản có display/rates.
+  if (
+    isMissingColumnError(full.error.message, "pay_type") ||
+    isMissingColumnError(full.error.message, "monthly_salary") ||
+    isMissingColumnError(full.error.message, "require_clock_in")
+  ) {
+    const mid = await supabase
+      .from("users")
+      .select(
+        "id, name, display_name, role, pin_code, customer_rate, staff_payout_rate, default_hourly_salary",
+      )
+      .order("name");
+    if (!mid.error) return mid;
+  }
+
+  const basic = await supabase
+    .from("users")
+    .select("id, name, display_name, role, pin_code, customer_rate, staff_payout_rate, default_hourly_salary")
+    .order("name");
+  if (!basic.error) return basic;
+
+  if (isMissingDisplayNameError(basic.error.message)) {
+    return supabase.from("users").select("id, name, role, pin_code").order("name");
+  }
+
+  return full.error ? basic : full;
+}
+
 async function HrContent({ active }: { active: HrTab }) {
   await connection();
   const monthKey = currentVietnamYearMonth();
@@ -39,13 +77,8 @@ async function HrContent({ active }: { active: HrTab }) {
   const { startIso, endIso } = vietnamMonthBounds(monthKey);
   const supabase = createDb();
 
-  const [fullStaff, shiftsRaw, payRaw, bookingsRaw, templatesRaw, ratesRaw] = await Promise.all([
-    supabase
-      .from("users")
-      .select(
-        "id, name, display_name, role, pin_code, customer_rate, staff_payout_rate, default_hourly_salary, pay_type, monthly_salary, require_clock_in",
-      )
-      .order("name"),
+  const [staffRaw, shiftsRaw, payRaw, bookingsRaw, templatesRaw, ratesRaw] = await Promise.all([
+    loadStaff(supabase),
     supabase
       .from("shifts")
       .select(
@@ -74,9 +107,7 @@ async function HrContent({ active }: { active: HrTab }) {
     supabase.from("staff_shift_rates").select("user_id, template_id, amount"),
   ]);
 
-  const staffResult = fullStaff.error
-    ? await supabase.from("users").select("id, name, role, pin_code").order("name")
-    : fullStaff;
+  const staffResult = staffRaw;
 
   let shiftResult = looseRows(shiftsRaw);
   if (shiftResult.error) {
@@ -113,18 +144,27 @@ async function HrContent({ active }: { active: HrTab }) {
   }
 
   let bookingResult = looseRows(bookingsRaw);
-  if (isMissingDisplayNameError(bookingResult.error?.message)) {
-    bookingResult = looseRows(
-      await supabase
-        .from("invoice_staff_bookings")
-        .select(
-          "staff_id, hours_worked, staff_payout_rate, profit, users(name), invoices!inner(status, end_time)",
-        )
-        .eq("invoices.status", "PAID")
-        .gte("invoices.end_time", startIso)
-        .lt("invoices.end_time", endIso),
-    );
+  if (isMissingDisplayNameError(bookingResult.error?.message) || bookingResult.error) {
+    const retry = await supabase
+      .from("invoice_staff_bookings")
+      .select(
+        "staff_id, hours_worked, staff_payout_rate, profit, users(name), invoices!inner(status, end_time)",
+      )
+      .eq("invoices.status", "PAID")
+      .gte("invoices.end_time", startIso)
+      .lt("invoices.end_time", endIso);
+    if (!retry.error || isMissingDisplayNameError(bookingResult.error?.message)) {
+      bookingResult = looseRows(retry);
+    }
+    // Soft-fail: payroll booking section empty, staff list still shows.
+    if (bookingResult.error) {
+      bookingResult = { data: [], error: null };
+    }
   }
+
+  // Soft-fail shifts/pay — không được nuốt danh sách nhân viên.
+  if (shiftResult.error) shiftResult = { data: [], error: null };
+  if (payResult.error) payResult = { data: [], error: null };
 
   const templatesMissing = Boolean(templatesRaw.error);
   const templates: ShiftTemplate[] = templatesMissing
@@ -147,27 +187,27 @@ async function HrContent({ active }: { active: HrTab }) {
         amount: Number(row.amount ?? 0),
       }));
 
-  const error =
-    staffResult.error ?? shiftResult.error ?? payResult.error ?? bookingResult.error;
-  if (error) {
+  // Chỉ fail cứng khi không đọc được bảng users.
+  if (staffResult.error) {
     return (
       <div className="flex flex-col gap-4">
         <LoadError
-          message={error.message}
-          hint={
-            templatesMissing
-              ? "Chạy update_shift_templates.sql trong Supabase (mẫu ca + lương tháng)."
-              : "Nếu thiếu cột display_name / giá phục vụ: chạy update_display_names_rates.sql."
-          }
+          message={staffResult.error.message}
+          hint="Không đọc được danh sách nhân viên. Kiểm tra RLS (update_disable_rls_all.sql) hoặc cột users."
         />
         <ShiftBoard
           staff={[]}
           shifts={[]}
-          templates={[]}
+          templates={templates}
           shiftRates={[]}
           payroll={[]}
           shopProfit={0}
           active={active}
+          schemaHint={
+            templatesMissing
+              ? "Chưa có bảng mẫu ca — chạy update_shift_templates.sql trong Supabase."
+              : null
+          }
         />
       </div>
     );
@@ -180,7 +220,7 @@ async function HrContent({ active }: { active: HrTab }) {
       name: String(row.name),
       displayName: displayLabel(String(row.name), row.display_name as string | undefined),
       role: String(row.role),
-      pinCode: String(row.pin_code),
+      pinCode: String(row.pin_code ?? ""),
       customerRate: Number(row.customer_rate ?? 0),
       staffPayoutRate: Number(row.staff_payout_rate ?? 0),
       defaultHourlySalary: Number(row.default_hourly_salary ?? 0),
@@ -259,6 +299,11 @@ async function HrContent({ active }: { active: HrTab }) {
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "vi"));
 
+  const hints: string[] = [];
+  if (templatesMissing) {
+    hints.push("Chưa có bảng mẫu ca — chạy update_shift_templates.sql trong Supabase.");
+  }
+
   return (
     <ShiftBoard
       staff={staff}
@@ -269,11 +314,7 @@ async function HrContent({ active }: { active: HrTab }) {
       shopProfit={shopProfit}
       active={active}
       monthLabel={monthLabel}
-      schemaHint={
-        templatesMissing
-          ? "Chưa có bảng mẫu ca — chạy update_shift_templates.sql trong Supabase."
-          : null
-      }
+      schemaHint={hints.length ? hints.join(" ") : null}
     />
   );
 }

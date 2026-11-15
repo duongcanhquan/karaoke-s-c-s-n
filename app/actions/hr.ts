@@ -215,7 +215,8 @@ export async function createStaff(input: {
     if (error.code === "23505") {
       return {
         ok: false,
-        error: checked.needsLogin ? "Mã PIN đã được dùng." : "Tên hoặc mã nội bộ bị trùng, thử lại.",
+        error:
+          "Trùng ràng buộc dữ liệu. Nếu báo trùng PIN: chạy update_pin_not_unique.sql (PIN được phép trùng).",
       };
     }
     const hint = missingPaySchemaHint(error.message);
@@ -314,7 +315,8 @@ export async function updateStaff(input: {
     if (error.code === "23505") {
       return {
         ok: false,
-        error: checked.needsLogin ? "Mã PIN đã được dùng." : "Mã nội bộ bị trùng, thử lại.",
+        error:
+          "Trùng ràng buộc dữ liệu. Nếu báo trùng PIN: chạy update_pin_not_unique.sql (PIN được phép trùng).",
       };
     }
     const hint = missingPaySchemaHint(error.message);
