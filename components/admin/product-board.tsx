@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { createProduct, deleteProduct, setMinibarItem, updateProduct } from "@/app/actions/products";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,6 +29,7 @@ import { formatVnd } from "@/lib/money";
 export type MenuProduct = {
   id: string;
   name: string;
+  displayName: string;
   category: ProductCategory;
   costPrice: number;
   sellingPrice: number;
@@ -58,7 +58,7 @@ function ProductFields({
     <>
       <div className="flex flex-col gap-1">
         <label htmlFor={`${idPrefix}-name`} className="text-sm font-medium">
-          Tên <span aria-hidden="true">*</span>
+          Tên nội bộ <span aria-hidden="true">*</span>
         </label>
         <Input
           id={`${idPrefix}-name`}
@@ -66,7 +66,24 @@ function ProductFields({
           required
           defaultValue={product?.name}
           className={fieldClass}
+          placeholder="VD: Bia HN thùng"
         />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label htmlFor={`${idPrefix}-display`} className="text-sm font-medium">
+          Tên hiển thị (hóa đơn / quầy) <span aria-hidden="true">*</span>
+        </label>
+        <Input
+          id={`${idPrefix}-display`}
+          name="displayName"
+          required
+          defaultValue={product?.displayName || product?.name}
+          className={fieldClass}
+          placeholder="VD: Bia Hà Nội"
+        />
+        <p className="text-xs text-muted-foreground">
+          Tên khách thấy trên màn hình và hóa đơn — đổi được mà không đổi tên kho.
+        </p>
       </div>
       <div className="flex flex-col gap-1">
         <label htmlFor={`${idPrefix}-category`} className="text-sm font-medium">
@@ -105,7 +122,7 @@ function ProductFields({
         </div>
         <div className="flex flex-col gap-1">
           <label htmlFor={`${idPrefix}-sell`} className="text-sm font-medium">
-            Giá bán <span aria-hidden="true">*</span>
+            Giá hiển thị / bán <span aria-hidden="true">*</span>
           </label>
           <Input
             id={`${idPrefix}-sell`}
@@ -120,22 +137,32 @@ function ProductFields({
           />
         </div>
       </div>
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${idPrefix}-stock`} className="text-sm font-medium">
-          Tồn kho <span aria-hidden="true">*</span>
-        </label>
-        <Input
-          id={`${idPrefix}-stock`}
-          name="stockQuantity"
-          type="number"
-          inputMode="numeric"
-          min="0"
-          step="1"
-          required
-          defaultValue={product?.stock ?? 0}
-          className={fieldClass}
-        />
-      </div>
+      {product ? (
+        <>
+          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            Tồn kho sửa ở <span className="font-semibold">Kho hàng</span> (nhập / kiểm kê) — không
+            ghi đè khi sửa món.
+          </p>
+          <input type="hidden" name="stockQuantity" value={String(product.stock)} />
+        </>
+      ) : (
+        <div className="flex flex-col gap-1">
+          <label htmlFor={`${idPrefix}-stock`} className="text-sm font-medium">
+            Tồn kho ban đầu <span aria-hidden="true">*</span>
+          </label>
+          <Input
+            id={`${idPrefix}-stock`}
+            name="stockQuantity"
+            type="number"
+            inputMode="numeric"
+            min="0"
+            step="1"
+            required
+            defaultValue={0}
+            className={fieldClass}
+          />
+        </div>
+      )}
       <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">
         <input
           name="isMinibarItem"
@@ -152,6 +179,7 @@ function ProductFields({
 function readProduct(data: FormData) {
   return {
     name: String(data.get("name") ?? ""),
+    displayName: String(data.get("displayName") ?? ""),
     category: String(data.get("category") ?? ""),
     costPrice: Number(data.get("costPrice")),
     sellingPrice: Number(data.get("sellingPrice")),
@@ -161,7 +189,6 @@ function readProduct(data: FormData) {
 }
 
 export function ProductBoard({ products }: { products: MenuProduct[] }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [formError, setFormError] = useState<string | null>(null);
   const [editing, setEditing] = useState<MenuProduct | null>(null);
@@ -183,7 +210,7 @@ export function ProductBoard({ products }: { products: MenuProduct[] }) {
       }
       notify(true, success);
       after?.();
-      router.refresh();
+      // revalidatePath in the action already refreshes — skip dual fetch lag.
     });
   }
 
@@ -231,7 +258,7 @@ export function ProductBoard({ products }: { products: MenuProduct[] }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Món</TableHead>
+                  <TableHead>Hiển thị / Nội bộ</TableHead>
                   <TableHead>Nhóm</TableHead>
                   <TableHead className="text-right">Giá bán</TableHead>
                   <TableHead className="text-right">Tồn</TableHead>
@@ -242,13 +269,22 @@ export function ProductBoard({ products }: { products: MenuProduct[] }) {
               <TableBody>
                 {products.map((product) => (
                   <TableRow key={product.id}>
-                    <TableCell>{product.name}</TableCell>
+                    <TableCell>
+                      <p className="font-medium">{product.displayName || product.name}</p>
+                      {product.displayName && product.displayName !== product.name ? (
+                        <p className="text-xs text-muted-foreground">{product.name}</p>
+                      ) : null}
+                    </TableCell>
                     <TableCell>{labelCategory(product.category)}</TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
                       {formatVnd(product.sellingPrice)}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
-                      {product.stock === 0 ? "Hết · 0" : product.stock}
+                      {product.category === "SERVICE"
+                        ? "—"
+                        : product.stock === 0
+                          ? "Hết · 0"
+                          : product.stock}
                     </TableCell>
                     <TableCell>
                       <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm">

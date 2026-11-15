@@ -1,65 +1,70 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { decodeSession, homeForRole, SESSION_COOKIE } from "@/lib/session";
+import {
+  decodeSession,
+  homeForRole,
+  isWorkMode,
+  SESSION_COOKIE,
+  WORK_MODE_COOKIE,
+} from "@/lib/session";
 
+/**
+ * Auth is the custom SESSION_COOKIE (PIN login), not Supabase Auth.
+ * Skipping supabase.auth.getClaims() removes a network round-trip on every navigation.
+ */
 export async function proxy(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({
-    request,
-  });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet, headers) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value),
-          );
-          supabaseResponse = NextResponse.next({
-            request,
-          });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options),
-          );
-          Object.entries(headers).forEach(([key, value]) =>
-            supabaseResponse.headers.set(key, value),
-          );
-        },
-      },
-    },
-  );
-
-  // Refreshes the auth cookie. Do not add logic between creating the client
-  // and this call, or the refreshed cookie can be dropped.
-  await supabase.auth.getClaims();
-
   const session = decodeSession(request.cookies.get(SESSION_COOKIE)?.value);
   const path = request.nextUrl.pathname;
 
-  function redirectTo(pathname: string) {
+  function redirectTo(target: string) {
     const url = request.nextUrl.clone();
-    url.pathname = pathname;
-    url.search = "";
-    const redirect = NextResponse.redirect(url);
-    supabaseResponse.cookies.getAll().forEach((cookie) => {
-      redirect.cookies.set(cookie);
-    });
-    return redirect;
+    const parsed = new URL(target, request.nextUrl.origin);
+    url.pathname = parsed.pathname;
+    url.search = parsed.search;
+    return NextResponse.redirect(url);
   }
 
   if (path === "/hr" || path.startsWith("/hr/")) return redirectTo("/admin/hr");
-  if (path === "/expenses" || path.startsWith("/expenses/")) return redirectTo("/admin/expenses");
-  if (path === "/inventory" || path.startsWith("/inventory/")) return redirectTo("/admin/inventory");
+  if (path === "/expenses" || path.startsWith("/expenses/")) {
+    return redirectTo("/admin/finance?tab=expenses");
+  }
+  if (path === "/inventory" || path.startsWith("/inventory/")) {
+    return redirectTo("/admin/catalog?tab=inventory");
+  }
+  if (path === "/admin/rooms" || path.startsWith("/admin/rooms/")) {
+    return redirectTo("/admin/setup");
+  }
+  if (path === "/admin/minibar" || path.startsWith("/admin/minibar/")) {
+    return redirectTo("/admin/setup?tab=minibar");
+  }
+  if (path === "/admin/revenue" || path.startsWith("/admin/revenue/")) {
+    return redirectTo("/admin/finance");
+  }
+  if (path === "/admin/expenses" || path.startsWith("/admin/expenses/")) {
+    return redirectTo("/admin/finance?tab=expenses");
+  }
+  if (path === "/admin/summary" || path.startsWith("/admin/summary/")) {
+    return redirectTo("/admin/finance?tab=summary");
+  }
+  if (path === "/admin/products" || path.startsWith("/admin/products/")) {
+    return redirectTo("/admin/catalog");
+  }
+  if (path === "/admin/inventory" || path.startsWith("/admin/inventory/")) {
+    return redirectTo("/admin/catalog?tab=inventory");
+  }
 
   if (!session && path !== "/") return redirectTo("/");
-  if (session && path === "/") return redirectTo(homeForRole(session.role));
-  if (session && session.role !== "ADMIN" && path.startsWith("/admin")) return redirectTo("/pos");
+  if (session && path === "/") {
+    const preferred = request.cookies.get(WORK_MODE_COOKIE)?.value;
+    return redirectTo(
+      homeForRole(session.role, isWorkMode(preferred) ? preferred : null),
+    );
+  }
+  // Quản lý được vào cả /admin và /pos. Role khác chỉ quầy.
+  if (session && session.role !== "ADMIN" && path.startsWith("/admin")) {
+    return redirectTo("/pos");
+  }
 
-  return supabaseResponse;
+  return NextResponse.next();
 }
 
 export const config = {

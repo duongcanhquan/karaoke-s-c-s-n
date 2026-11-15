@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import dynamic from "next/dynamic";
+import { useEffect, useState, useTransition } from "react";
 import { LogOut, Minus, Plus } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import {
@@ -11,10 +12,9 @@ import {
   recomputeCheckout,
   startRoom,
 } from "@/app/actions/pos";
-import { ManagerPinDialog } from "@/components/pos/manager-pin-dialog";
-import { PaymentDialog } from "@/components/pos/payment-dialog";
-import { RevenueBoard } from "@/components/pos/revenue-board";
-import { StockAuditDialog } from "@/components/pos/stock-audit-dialog";
+import { RoomLiveTimer } from "@/components/pos/room-live-timer";
+import { WorkModeSwitch } from "@/components/work-mode-switch";
+import { invalidatePosClientCache } from "@/lib/pos-client-data";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -26,7 +26,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { labelCategory, productCategories, type ProductCategory } from "@/lib/catalog";
-import { billableHours, formatElapsed, formatVnd } from "@/lib/money";
+import { formatVnd } from "@/lib/money";
 import type {
   ActionResult,
   InvoiceItem,
@@ -41,6 +41,25 @@ import {
   formatVietnamHeaderDate,
   formatVietnamHeaderTime,
 } from "@/lib/vietnam-time";
+
+const ManagerPinDialog = dynamic(
+  () =>
+    import("@/components/pos/manager-pin-dialog").then((mod) => mod.ManagerPinDialog),
+  { ssr: false },
+);
+const PaymentDialog = dynamic(
+  () => import("@/components/pos/payment-dialog").then((mod) => mod.PaymentDialog),
+  { ssr: false },
+);
+const RevenueBoard = dynamic(
+  () => import("@/components/pos/revenue-board").then((mod) => mod.RevenueBoard),
+  { ssr: false },
+);
+const StockAuditDialog = dynamic(
+  () =>
+    import("@/components/pos/stock-audit-dialog").then((mod) => mod.StockAuditDialog),
+  { ssr: false },
+);
 
 export type PosBill = {
   id: string;
@@ -60,18 +79,6 @@ function notify(result: ActionResult, success: string) {
   return false;
 }
 
-/** Local clock only — never talks to Supabase. Use a longer interval on the room grid. */
-function useNow(intervalMs: number) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const tick = () => setNow(Date.now());
-    tick();
-    const id = window.setInterval(tick, intervalMs);
-    return () => window.clearInterval(id);
-  }, [intervalMs]);
-  return now;
-}
-
 function formatStartClock(iso: string) {
   return new Intl.DateTimeFormat("vi-VN", {
     hour: "2-digit",
@@ -82,7 +89,11 @@ function formatStartClock(iso: string) {
 }
 
 function HeaderClock() {
-  const now = useNow(1000);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
   return (
     <time dateTime={new Date(now).toISOString()} className="text-center leading-tight">
       <span className="block text-sm font-semibold text-slate-800 md:text-base">
@@ -97,6 +108,7 @@ function HeaderClock() {
 
 export function PosKiosk({
   cashierName,
+  canManage = false,
   rooms: roomsProp,
   products,
   staff: _staff,
@@ -104,6 +116,7 @@ export function PosKiosk({
   roomSetups,
 }: {
   cashierName: string;
+  canManage?: boolean;
   rooms: Room[];
   products: Product[];
   staff: StaffOption[];
@@ -144,14 +157,22 @@ export function PosKiosk({
   const payRoom =
     rooms.find((item) => item.id === (payRoomId ?? openRoomId)) ?? null;
   const payBill = payRoom ? bills[payRoom.id] ?? null : null;
-  // 1s only while an active room sheet is open; grid uses 15s — still 100% local, zero Supabase.
-  const now = useNow(room?.status === "IN_USE" && bill ? 1000 : 15_000);
   const setupItems = room ? roomSetups[room.id] ?? [] : [];
   const locked = pending || busy || checkoutBusy;
 
   useEffect(() => {
     setSetupChecked(false);
   }, [openRoomId]);
+
+  // Prefetch heavy checkout UI once a room is open so pay/revenue feels instant.
+  useEffect(() => {
+    if (!openRoomId && !revenueOpen && !checkoutOpen) return;
+    void import("@/components/pos/payment-dialog");
+    void import("@/components/pos/stock-audit-dialog");
+    void import("@/components/pos/manager-pin-dialog");
+    void import("@/components/pos/revenue-board");
+  }, [openRoomId, revenueOpen, checkoutOpen]);
+
   const visibleProducts = products.filter(
     (product) => category === "ALL" || product.category === category,
   );
@@ -255,6 +276,7 @@ export function PosKiosk({
         },
       }));
       setSetupChecked(false);
+      invalidatePosClientCache();
       toast.add({ title: `Đã mở ${roomName}`, type: "success" });
     } finally {
       setBusy(false);
@@ -353,16 +375,28 @@ export function PosKiosk({
   return (
     <div className="relative flex h-dvh w-screen flex-col overflow-hidden bg-slate-950">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -left-24 top-0 size-[22rem] rounded-full bg-teal-500/25 blur-2xl" />
-        <div className="absolute -right-16 top-24 size-[20rem] rounded-full bg-rose-500/20 blur-2xl" />
+        <div className="absolute -left-24 top-0 size-[22rem] rounded-full bg-teal-500/20" />
+        <div className="absolute -right-16 top-24 size-[20rem] rounded-full bg-rose-500/15" />
       </div>
 
       <header className="relative z-10 flex min-h-16 items-center justify-between gap-3 border-b border-white/30 bg-white/90 px-4 md:min-h-20 md:px-8">
-        <p className="min-w-0 truncate text-lg font-bold text-slate-950 md:text-2xl">
-          {cashierName}
-        </p>
+        <div className="min-w-0">
+          <p className="truncate text-lg font-bold text-slate-950 md:text-2xl">{cashierName}</p>
+          {canManage ? (
+            <p className="truncate text-xs font-semibold text-teal-800 md:text-sm">
+              Quản lý · đang làm quầy thu ngân
+            </p>
+          ) : null}
+        </div>
         <HeaderClock />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {canManage ? (
+            <WorkModeSwitch
+              mode="admin"
+              label="Quản trị"
+              className="min-h-14 border border-teal-700 bg-teal-700 px-3 text-base font-bold text-white hover:bg-teal-800 md:min-h-16 md:px-5 md:text-xl"
+            />
+          ) : null}
           <Button
             type="button"
             className="min-h-14 border border-slate-200 bg-white px-3 text-base font-bold text-slate-950 hover:bg-slate-50 md:min-h-16 md:px-5 md:text-xl"
@@ -439,7 +473,6 @@ export function PosKiosk({
               }
 
               if (item.status === "IN_USE" && active) {
-                const hours = billableHours(active.startTime, now);
                 return (
                   <button
                     key={item.id}
@@ -457,12 +490,11 @@ export function PosKiosk({
                         {formatStartClock(active.startTime)}
                       </span>
                     </p>
-                    <p className="mt-auto font-mono text-4xl font-bold tabular-nums md:text-5xl">
-                      {formatElapsed(active.startTime, now)}
-                    </p>
-                    <p className="text-base font-semibold md:text-lg">
-                      Giờ tính: {hours} giờ · {formatVnd(item.hourly_rate)}/giờ
-                    </p>
+                    <RoomLiveTimer
+                      startTime={active.startTime}
+                      hourlyRate={item.hourly_rate}
+                      variant="card"
+                    />
                   </button>
                 );
               }
@@ -588,15 +620,11 @@ export function PosKiosk({
                       <p className="text-sm opacity-90">
                         Bắt đầu lúc {formatStartClock(bill.startTime)}
                       </p>
-                      <p className="mt-2 font-mono text-4xl font-bold tabular-nums">
-                        {formatElapsed(bill.startTime, now)}
-                      </p>
-                      <p className="mt-3 text-lg font-semibold">
-                        Giờ tính: {billableHours(bill.startTime, now)} giờ
-                      </p>
-                      <p className="mt-1 text-sm opacity-90">
-                        Tiền chỉ tính khi bấm Thanh toán
-                      </p>
+                      <RoomLiveTimer
+                        startTime={bill.startTime}
+                        hourlyRate={room.hourly_rate}
+                        variant="banner"
+                      />
                     </div>
 
                     <p className="mb-3 text-base text-slate-600">
@@ -681,27 +709,31 @@ export function PosKiosk({
         </SheetContent>
       </Sheet>
 
-      {/* Dialogs MUST sit outside Sheet — nested Base UI modals freeze clicks. */}
-      <StockAuditDialog
-        open={checkoutOpen}
-        onOpenChange={(open) => {
-          setCheckoutOpen(open);
-          if (!open && !paymentOpen) {
-            if (payRoomId) setOpenRoomId(payRoomId);
-            setPayRoomId(null);
-          }
-        }}
-        pending={checkoutBusy}
-        roomName={payRoom?.name ?? ""}
-        startTime={payBill?.startTime ?? new Date().toISOString()}
-        hourlyRate={payRoom?.hourly_rate ?? 0}
-        items={payBill?.items ?? []}
-        staffTotal={payBill?.staffTotal ?? 0}
-        onConfirm={(audit) => {
-          void runPrepareCheckout(audit);
-        }}
-      />
+      {/* Dialogs MUST sit outside Sheet — nested Base UI modals freeze clicks.
+          Mount only when open to keep the room grid snappy. */}
+      {checkoutOpen ? (
+        <StockAuditDialog
+          open={checkoutOpen}
+          onOpenChange={(open) => {
+            setCheckoutOpen(open);
+            if (!open && !paymentOpen) {
+              if (payRoomId) setOpenRoomId(payRoomId);
+              setPayRoomId(null);
+            }
+          }}
+          pending={checkoutBusy}
+          roomName={payRoom?.name ?? ""}
+          startTime={payBill?.startTime ?? new Date().toISOString()}
+          hourlyRate={payRoom?.hourly_rate ?? 0}
+          items={payBill?.items ?? []}
+          staffTotal={payBill?.staffTotal ?? 0}
+          onConfirm={(audit) => {
+            void runPrepareCheckout(audit);
+          }}
+        />
+      ) : null}
 
+      {paymentOpen && payment ? (
       <PaymentDialog
         open={paymentOpen}
         onOpenChange={(open) => {
@@ -718,20 +750,20 @@ export function PosKiosk({
         payment={payment}
         cashierName={cashierName}
         onAdjustLine={(productId, delta) => {
-          if (!payment || !payRoom) return;
+          if (!payment) return;
           if (delta < 0) {
             requestReduce(payment.invoiceId, productId, true);
             return;
           }
-          applyLocalDelta(payRoom.id, productId, 1);
           void (async () => {
-            const result = await adjustInvoiceItem(payment.invoiceId, productId, 1);
-            if (!result.ok) {
-              applyLocalDelta(payRoom.id, productId, -1);
-              notify(result, "Đã thêm 1");
-              return;
-            }
-            toast.add({ title: "Đã thêm 1", type: "success" });
+            const result = await adjustInvoiceItem(
+              payment.invoiceId,
+              productId,
+              1,
+              undefined,
+              "consumed",
+            );
+            if (!notify(result, "Đã thêm 1")) return;
             refreshPaymentCheckout(payment.invoiceId);
           })();
         }}
@@ -781,6 +813,7 @@ export function PosKiosk({
                 notify(result, "Đã thu tiền");
                 return;
               }
+              invalidatePosClientCache();
               toast.add({ title: "Đã thu tiền", type: "success" });
             } finally {
               setBusy(false);
@@ -788,42 +821,53 @@ export function PosKiosk({
           })();
         }}
       />
+      ) : null}
 
-      <ManagerPinDialog
-        open={pinOpen}
-        onOpenChange={(open) => {
-          setPinOpen(open);
-          if (!open) setPendingReduce(null);
-        }}
-        pending={locked}
-        onConfirm={(pin) => {
-          if (!pendingReduce || !payRoom) return;
-          const target = pendingReduce;
-          const roomId = payRoom.id;
-          applyLocalDelta(roomId, target.productId, -1);
-          setPinOpen(false);
-          setPendingReduce(null);
-          void (async () => {
-            const result = await adjustInvoiceItem(
-              target.invoiceId,
-              target.productId,
-              -1,
-              pin,
-            );
-            if (!result.ok) {
-              applyLocalDelta(roomId, target.productId, 1);
-              notify(result, "Đã bớt 1");
-              return;
+      {pinOpen ? (
+        <ManagerPinDialog
+          open={pinOpen}
+          onOpenChange={(open) => {
+            setPinOpen(open);
+            if (!open) setPendingReduce(null);
+          }}
+          pending={locked}
+          onConfirm={(pin) => {
+            if (!pendingReduce) return;
+            const target = pendingReduce;
+            const roomId = payRoom?.id ?? openRoomId;
+            const fromPayment = Boolean(target.refreshPayment);
+            if (!fromPayment && roomId) {
+              applyLocalDelta(roomId, target.productId, -1);
             }
-            toast.add({ title: "Đã bớt 1", type: "success" });
-            if (target.refreshPayment) {
-              refreshPaymentCheckout(target.invoiceId);
-            }
-          })();
-        }}
-      />
+            setPinOpen(false);
+            setPendingReduce(null);
+            void (async () => {
+              const result = await adjustInvoiceItem(
+                target.invoiceId,
+                target.productId,
+                -1,
+                pin,
+                fromPayment ? "consumed" : "ordered",
+              );
+              if (!result.ok) {
+                if (!fromPayment && roomId) {
+                  applyLocalDelta(roomId, target.productId, 1);
+                }
+                notify(result, "Đã bớt 1");
+                return;
+              }
+              toast.add({ title: "Đã bớt 1", type: "success" });
+              if (fromPayment) {
+                refreshPaymentCheckout(target.invoiceId);
+              }
+            })();
+          }}
+        />
+      ) : null}
 
-      <RevenueBoard open={revenueOpen} onOpenChange={setRevenueOpen} />
+      {revenueOpen ? (
+        <RevenueBoard open={revenueOpen} onOpenChange={setRevenueOpen} />
+      ) : null}
     </div>
   );
 }
@@ -839,13 +883,9 @@ function BillList({
   onAdd: (productId: string) => void;
   onReduce: (productId: string) => void;
 }) {
-  const lines = useMemo(
-    () =>
-      items.filter(
-        (item) =>
-          item.ordered_qty > 0 || item.is_minibar_item || item.initial_qty > 0,
-      ),
-    [items],
+  const lines = items.filter(
+    (item) =>
+      item.ordered_qty > 0 || item.is_minibar_item || item.initial_qty > 0,
   );
 
   if (lines.length === 0) {

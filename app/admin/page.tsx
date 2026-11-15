@@ -1,9 +1,7 @@
 import { Suspense } from "react";
-import Link from "next/link";
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "cn";
+import { WorkModeSwitch } from "@/components/work-mode-switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { createClient } from "@/utils/supabase/server";
+import { getCachedDashboardStats } from "@/lib/admin-data";
 
 function DashboardFallback() {
   return (
@@ -17,14 +15,8 @@ function DashboardFallback() {
 }
 
 async function DashboardStats() {
-  const supabase = await createClient();
-  const [rooms, invoices, products] = await Promise.all([
-    supabase.from("rooms").select("id, status"),
-    supabase.from("invoices").select("id").eq("status", "ACTIVE"),
-    supabase.from("products").select("id"),
-  ]);
-  const error = rooms.error ?? invoices.error ?? products.error;
-  if (error) {
+  const stats = await getCachedDashboardStats();
+  if (stats.error) {
     return (
       <Card>
         <CardHeader>
@@ -32,23 +24,22 @@ async function DashboardStats() {
         </CardHeader>
         <CardContent>
           <p role="alert" className="text-sm text-destructive">
-            {error.message}
+            {stats.error}
           </p>
         </CardContent>
       </Card>
     );
   }
 
-  const inUse = (rooms.data ?? []).filter((room) => room.status === "IN_USE").length;
-  const stats = [
-    { label: "Phòng đang hát", value: inUse },
-    { label: "Hóa đơn mở", value: invoices.data?.length ?? 0 },
-    { label: "Món trong kho", value: products.data?.length ?? 0 },
+  const cards = [
+    { label: "Phòng đang hát", value: stats.inUse },
+    { label: "Hóa đơn mở", value: stats.openInvoices },
+    { label: "Món trong kho", value: stats.productCount },
   ];
 
   return (
     <div className="grid gap-3 sm:grid-cols-3">
-      {stats.map((stat) => (
+      {cards.map((stat) => (
         <Card key={stat.label}>
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -71,12 +62,10 @@ export default function AdminPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Tổng quan</h1>
           <p className="max-w-prose text-sm leading-6 text-muted-foreground">
-            Tình hình phòng và hóa đơn đang mở.
+            Quản lý có thể làm thu ngân bất cứ lúc nào — bấm “Làm quầy thu ngân”.
           </p>
         </div>
-        <Link href="/pos" className={cn(buttonVariants(), "min-h-11")}>
-          Bán hàng
-        </Link>
+        <WorkModeSwitch mode="pos" className="min-h-12 px-5 text-base" label="Làm quầy thu ngân" />
       </div>
       <Suspense fallback={<DashboardFallback />}>
         <DashboardStats />

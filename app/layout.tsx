@@ -3,10 +3,10 @@ import { Be_Vietnam_Pro, JetBrains_Mono, Playfair_Display } from "next/font/goog
 import { Toaster } from "@/components/ui/toast";
 import "./globals.css";
 
-/** Vietnamese-first UI font — glyphs stable on Windows/macOS/Linux. */
+/** Vietnamese-first UI font — fewer weights = faster first paint. */
 const beVietnam = Be_Vietnam_Pro({
   subsets: ["latin", "vietnamese"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["400", "600", "700"],
   variable: "--font-geist-sans",
   display: "swap",
   preload: true,
@@ -14,17 +14,19 @@ const beVietnam = Be_Vietnam_Pro({
 
 const playfair = Playfair_Display({
   subsets: ["latin", "vietnamese"],
-  weight: ["500", "600", "700"],
+  weight: ["600", "700"],
   variable: "--font-display",
   display: "swap",
+  preload: false,
 });
 
 /** Digits / money — no Vietnamese needed. */
 const jetbrains = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["500", "700"],
   variable: "--font-geist-mono",
   display: "swap",
+  preload: false,
 });
 
 export const metadata: Metadata = {

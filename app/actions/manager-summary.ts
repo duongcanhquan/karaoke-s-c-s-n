@@ -14,7 +14,10 @@ import {
   vietnamMonthBounds,
   vietnamWeekBounds,
 } from "@/lib/vietnam-time";
-import { createClient } from "@/utils/supabase/server";
+import { requireAdminSession } from "@/lib/admin-session";
+import { relatedDisplayName } from "@/lib/display-name";
+import { isMissingDisplayNameError, looseRows } from "@/lib/supabase-errors";
+import { createDb } from "@/utils/supabase/db";
 
 export type ManagerSummary = {
   period: RevenuePeriod;
@@ -41,15 +44,7 @@ export type ManagerSummary = {
 };
 
 function relatedName(value: unknown, fallback: string) {
-  if (!value) return fallback;
-  if (Array.isArray(value)) {
-    const first = value[0] as { name?: string } | undefined;
-    return first?.name ?? fallback;
-  }
-  if (typeof value === "object" && value && "name" in value) {
-    return String((value as { name: unknown }).name);
-  }
-  return fallback;
+  return relatedDisplayName(value, fallback);
 }
 
 function periodMeta(period: RevenuePeriod, periodKey: string) {
@@ -97,9 +92,11 @@ export async function getManagerSummary(
   period: RevenuePeriod,
   periodKey: string,
 ): Promise<{ ok: true; data: ManagerSummary } | { ok: false; error: string }> {
+  const gate = await requireAdminSession();
+  if (!gate.ok) return gate;
   const { bounds, label, longLabel } = periodMeta(period, periodKey);
   const dateRange = dateOnlyRange(period, periodKey);
-  const supabase = await createClient();
+  const supabase = createDb();
 
   const expensesQuery =
     period === "day"
@@ -132,10 +129,10 @@ export async function getManagerSummary(
   if (paidInvoicesResult.error) return { ok: false, error: paidInvoicesResult.error.message };
   const paidIds = (paidInvoicesResult.data ?? []).map((row) => String(row.id));
 
-  const [shiftsResult, bookingsResult, expensesResult] = await Promise.all([
+  const [shiftsRaw, bookingsRaw, expensesResult] = await Promise.all([
     supabase
       .from("shifts")
-      .select("id, user_id, total_salary, end_time, users(name)")
+      .select("id, user_id, total_salary, end_time, users(name, display_name)")
       .not("end_time", "is", null)
       .not("total_salary", "is", null)
       .gte("end_time", bounds.startIso)
@@ -143,11 +140,34 @@ export async function getManagerSummary(
     paidIds.length
       ? supabase
           .from("invoice_staff_bookings")
-          .select("id, staff_id, hours_worked, staff_payout_rate, users(name)")
+          .select("id, staff_id, hours_worked, staff_payout_rate, users(name, display_name)")
           .in("invoice_id", paidIds)
       : Promise.resolve({ data: [], error: null }),
     expensesQuery,
   ]);
+
+  let shiftsResult = looseRows(shiftsRaw);
+  let bookingsResult = looseRows(bookingsRaw);
+
+  if (isMissingDisplayNameError(shiftsResult.error?.message)) {
+    shiftsResult = looseRows(
+      await supabase
+        .from("shifts")
+        .select("id, user_id, total_salary, end_time, users(name)")
+        .not("end_time", "is", null)
+        .not("total_salary", "is", null)
+        .gte("end_time", bounds.startIso)
+        .lt("end_time", bounds.endIso),
+    );
+  }
+  if (paidIds.length && isMissingDisplayNameError(bookingsResult.error?.message)) {
+    bookingsResult = looseRows(
+      await supabase
+        .from("invoice_staff_bookings")
+        .select("id, staff_id, hours_worked, staff_payout_rate, users(name)")
+        .in("invoice_id", paidIds),
+    );
+  }
 
   const expensesData = expensesResult.data;
   const error = shiftsResult.error ?? bookingsResult.error ?? expensesResult.error;
@@ -260,8 +280,10 @@ export async function listWorkExport(
   | { ok: true; workdays: WorkdayExportRow[]; jobs: JobExportRow[]; label: string }
   | { ok: false; error: string }
 > {
+  const gate = await requireAdminSession();
+  if (!gate.ok) return gate;
   const { bounds, label } = periodMeta(period, periodKey);
-  const supabase = await createClient();
+  const supabase = createDb();
 
   const paidInvoicesResult = await supabase
     .from("invoices")
@@ -283,10 +305,10 @@ export async function listWorkExport(
     ]),
   );
 
-  const [shiftsResult, bookingsResult] = await Promise.all([
+  const [shiftsRaw, bookingsRaw] = await Promise.all([
     supabase
       .from("shifts")
-      .select("start_time, end_time, hourly_salary, total_salary, users(name)")
+      .select("start_time, end_time, hourly_salary, total_salary, users(name, display_name)")
       .not("end_time", "is", null)
       .gte("end_time", bounds.startIso)
       .lt("end_time", bounds.endIso)
@@ -294,10 +316,33 @@ export async function listWorkExport(
     paidIds.length
       ? supabase
           .from("invoice_staff_bookings")
-          .select("invoice_id, hours_worked, staff_payout_rate, users(name)")
+          .select("invoice_id, hours_worked, staff_payout_rate, users(name, display_name)")
           .in("invoice_id", paidIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
+
+  let shiftsResult = looseRows(shiftsRaw);
+  let bookingsResult = looseRows(bookingsRaw);
+
+  if (isMissingDisplayNameError(shiftsResult.error?.message)) {
+    shiftsResult = looseRows(
+      await supabase
+        .from("shifts")
+        .select("start_time, end_time, hourly_salary, total_salary, users(name)")
+        .not("end_time", "is", null)
+        .gte("end_time", bounds.startIso)
+        .lt("end_time", bounds.endIso)
+        .order("end_time", { ascending: true }),
+    );
+  }
+  if (paidIds.length && isMissingDisplayNameError(bookingsResult.error?.message)) {
+    bookingsResult = looseRows(
+      await supabase
+        .from("invoice_staff_bookings")
+        .select("invoice_id, hours_worked, staff_payout_rate, users(name)")
+        .in("invoice_id", paidIds),
+    );
+  }
 
   const error = shiftsResult.error ?? bookingsResult.error;
   if (error) return { ok: false, error: error.message };

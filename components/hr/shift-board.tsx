@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { clockIn, clockOut, createStaff, deleteStaff, updateStaff } from "@/app/actions/hr";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,8 +29,12 @@ import { roleLabel, staffRoles, type StaffRole } from "@/lib/session";
 export type StaffMember = {
   id: string;
   name: string;
+  displayName: string;
   role: string;
   pinCode: string;
+  customerRate: number;
+  staffPayoutRate: number;
+  defaultHourlySalary: number;
 };
 
 export type ShiftRow = {
@@ -90,6 +93,23 @@ function StaffFields({
         />
       </div>
       <div className="flex flex-col gap-1">
+        <label htmlFor={`${idPrefix}-display`} className="text-sm font-medium">
+          Tên hiển thị (hóa đơn / quầy) <span aria-hidden="true">*</span>
+        </label>
+        <Input
+          id={`${idPrefix}-display`}
+          name="displayName"
+          required
+          defaultValue={member?.displayName || member?.name}
+          autoComplete="off"
+          className={fieldClass}
+          placeholder="VD: Ngọc Anh"
+        />
+        <p className="text-xs text-muted-foreground">
+          Tên khách thấy khi gán phục vụ — đổi được, không ảnh hưởng tên đăng nhập.
+        </p>
+      </div>
+      <div className="flex flex-col gap-1">
         <label htmlFor={`${idPrefix}-role`} className="text-sm font-medium">
           Vai trò <span aria-hidden="true">*</span>
         </label>
@@ -122,6 +142,53 @@ function StaffFields({
           className={fieldClass}
         />
       </div>
+      <div className="rounded-xl border border-border bg-muted/30 p-3">
+        <p className="mb-2 text-sm font-semibold">Giá phục vụ (nhân viên phục vụ)</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-1">
+            <label htmlFor={`${idPrefix}-customer-rate`} className="text-sm font-medium">
+              Giá hiển thị / khách (giờ)
+            </label>
+            <Input
+              id={`${idPrefix}-customer-rate`}
+              name="customerRate"
+              type="number"
+              min={0}
+              step={1000}
+              defaultValue={member?.customerRate ?? 0}
+              className={fieldClass}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor={`${idPrefix}-payout-rate`} className="text-sm font-medium">
+              Giá trả nhân viên (giờ)
+            </label>
+            <Input
+              id={`${idPrefix}-payout-rate`}
+              name="staffPayoutRate"
+              type="number"
+              min={0}
+              step={1000}
+              defaultValue={member?.staffPayoutRate ?? 0}
+              className={fieldClass}
+            />
+          </div>
+        </div>
+        <div className="mt-3 flex flex-col gap-1">
+          <label htmlFor={`${idPrefix}-hourly`} className="text-sm font-medium">
+            Lương ca mặc định (giờ)
+          </label>
+          <Input
+            id={`${idPrefix}-hourly`}
+            name="defaultHourlySalary"
+            type="number"
+            min={0}
+            step={1000}
+            defaultValue={member?.defaultHourlySalary ?? 0}
+            className={fieldClass}
+          />
+        </div>
+      </div>
     </>
   );
 }
@@ -129,8 +196,12 @@ function StaffFields({
 function readStaff(data: FormData) {
   return {
     name: String(data.get("name") ?? ""),
+    displayName: String(data.get("displayName") ?? ""),
     role: String(data.get("role") ?? ""),
     pinCode: String(data.get("pinCode") ?? ""),
+    customerRate: Number(data.get("customerRate") ?? 0),
+    staffPayoutRate: Number(data.get("staffPayoutRate") ?? 0),
+    defaultHourlySalary: Number(data.get("defaultHourlySalary") ?? 0),
   };
 }
 
@@ -145,7 +216,6 @@ export function ShiftBoard({
   payroll?: PayrollLine[];
   shopProfit?: number;
 }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [staffError, setStaffError] = useState<string | null>(null);
   const [shiftError, setShiftError] = useState<string | null>(null);
@@ -169,7 +239,6 @@ export function ShiftBoard({
       }
       after?.();
       toast.add({ title: success, type: "success" });
-      router.refresh();
     });
   }
 
@@ -179,7 +248,8 @@ export function ShiftBoard({
         <CardHeader>
           <CardTitle>Quản lý nhân viên</CardTitle>
           <CardDescription>
-            Mỗi người đăng nhập bằng đúng tên + mã PIN. Quản lý vào bảng điều khiển; thu ngân / phục vụ vào quầy.
+            Tên đăng nhập + PIN để vào ca. Tên hiển thị và giá phục vụ (giá khách / trả NV) dùng trên
+            hóa đơn. Quản lý cũng làm thu ngân được.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid items-start gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
@@ -213,8 +283,10 @@ export function ShiftBoard({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Tên</TableHead>
+                      <TableHead>Hiển thị / Đăng nhập</TableHead>
                       <TableHead>Vai trò</TableHead>
+                      <TableHead className="text-right">Giá khách</TableHead>
+                      <TableHead className="text-right">Trả NV</TableHead>
                       <TableHead>Mã PIN</TableHead>
                       <TableHead>Thao tác</TableHead>
                     </TableRow>
@@ -222,8 +294,21 @@ export function ShiftBoard({
                   <TableBody>
                     {staff.map((member) => (
                       <TableRow key={member.id}>
-                        <TableCell className="font-medium">{member.name}</TableCell>
+                        <TableCell>
+                          <p className="font-medium">
+                            {member.displayName || member.name}
+                          </p>
+                          {member.displayName && member.displayName !== member.name ? (
+                            <p className="text-xs text-muted-foreground">{member.name}</p>
+                          ) : null}
+                        </TableCell>
                         <TableCell>{labelRole(member.role)}</TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">
+                          {formatVnd(member.customerRate)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">
+                          {formatVnd(member.staffPayoutRate)}
+                        </TableCell>
                         <TableCell className="font-mono tabular-nums tracking-widest">
                           {member.pinCode}
                         </TableCell>
@@ -353,13 +438,20 @@ export function ShiftBoard({
                 disabled={staff.length === 0}
                 defaultValue=""
                 className="min-h-11 w-full rounded-lg border border-input bg-transparent px-2.5 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 md:text-sm"
+                onChange={(event) => {
+                  const member = staff.find((item) => item.id === event.target.value);
+                  const rate = document.getElementById("shift-rate") as HTMLInputElement | null;
+                  if (rate && member) {
+                    rate.value = String(member.defaultHourlySalary || "");
+                  }
+                }}
               >
                 <option value="" disabled>
                   {staff.length === 0 ? "Chưa có nhân viên" : "Chọn nhân viên"}
                 </option>
                 {staff.map((member) => (
                   <option key={member.id} value={member.id}>
-                    {member.name} · {labelRole(member.role)}
+                    {member.displayName || member.name} · {labelRole(member.role)}
                   </option>
                 ))}
               </select>
@@ -377,6 +469,7 @@ export function ShiftBoard({
                 step="1"
                 required
                 className={fieldClass}
+                placeholder="Tự điền từ lương ca mặc định khi chọn NV"
               />
             </div>
             {shiftError ? (

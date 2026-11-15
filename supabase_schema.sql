@@ -12,9 +12,17 @@
 create table if not exists public.users (
   id uuid primary key default gen_random_uuid(),
   name text not null,
+  display_name text not null default '',
   role text not null,
   pin_code text not null,
-  constraint users_pin_code_key unique (pin_code)
+  customer_rate numeric(12, 2) not null default 0,
+  staff_payout_rate numeric(12, 2) not null default 0,
+  default_hourly_salary numeric(12, 2) not null default 0,
+  constraint users_pin_code_key unique (pin_code),
+  constraint users_customer_rate_check check (customer_rate >= 0),
+  constraint users_staff_payout_rate_check check (staff_payout_rate >= 0),
+  constraint users_rate_order_check check (customer_rate >= staff_payout_rate),
+  constraint users_default_hourly_salary_check check (default_hourly_salary >= 0)
 );
 
 create table if not exists public.rooms (
@@ -31,6 +39,7 @@ create table if not exists public.rooms (
 create table if not exists public.products (
   id uuid primary key default gen_random_uuid(),
   name text not null,
+  display_name text not null default '',
   category text not null,
   cost_price numeric(12, 2) not null,
   selling_price numeric(12, 2) not null,
@@ -167,9 +176,17 @@ create table if not exists public.invoice_staff_bookings (
 
 create table if not exists public.shop_settings (
   id uuid primary key default gen_random_uuid(),
+  shop_name text not null default 'Karaoke',
+  shop_address text not null default '',
+  shop_phone text not null default '',
+  receipt_footer text not null default 'Cảm ơn quý khách',
   bank_bin text not null default '970436',
   bank_account_number text not null default '',
-  bank_account_name text not null default ''
+  bank_account_name text not null default '',
+  printer_paper_mm integer not null default 80,
+  printer_auto_print boolean not null default false,
+  printer_copies integer not null default 1,
+  printer_name text not null default ''
 );
 
 create index if not exists invoices_room_id_idx on public.invoices (room_id);

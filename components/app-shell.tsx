@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { logout } from "@/app/actions/auth";
+import { WorkModeSwitch } from "@/components/work-mode-switch";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -12,31 +13,23 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
-  Calculator,
   CircleDollarSign,
   DoorOpen,
   LayoutDashboard,
   Menu,
   Package,
-  Receipt,
   Settings,
   Users,
-  UtensilsCrossed,
-  Wine,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "cn";
 
 const links: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/admin", label: "Tổng quan", icon: LayoutDashboard },
-  { href: "/admin/summary", label: "Tổng hợp", icon: Calculator },
-  { href: "/admin/revenue", label: "Doanh thu", icon: CircleDollarSign },
-  { href: "/admin/products", label: "Thực đơn", icon: UtensilsCrossed },
-  { href: "/admin/rooms", label: "Phòng", icon: DoorOpen },
-  { href: "/admin/minibar", label: "Tủ minibar", icon: Wine },
+  { href: "/admin/finance", label: "Tài chính", icon: CircleDollarSign },
+  { href: "/admin/catalog", label: "Hàng hóa", icon: Package },
+  { href: "/admin/setup", label: "Setup phòng", icon: DoorOpen },
   { href: "/admin/hr", label: "Nhân viên", icon: Users },
-  { href: "/admin/inventory", label: "Kho hàng", icon: Package },
-  { href: "/admin/expenses", label: "Chi phí", icon: Receipt },
   { href: "/admin/settings", label: "Cài đặt", icon: Settings },
 ];
 
@@ -57,31 +50,41 @@ function Brand() {
 
 function NavLinks({
   pathname,
+  pendingHref,
   onNavigate,
 }: {
   pathname: string;
-  onNavigate?: () => void;
+  pendingHref: string | null;
+  onNavigate?: (href: string) => void;
 }) {
   return (
     <nav aria-label="Chính" className="flex flex-col gap-1 px-3 pb-6">
       {links.map((link) => {
         const current = isCurrent(pathname, link.href);
+        const pending = pendingHref === link.href;
         const Icon = link.icon;
         return (
           <Link
             key={link.href}
             href={link.href}
+            prefetch
             aria-current={current ? "page" : undefined}
-            onClick={onNavigate}
+            aria-busy={pending || undefined}
+            onClick={() => onNavigate?.(link.href)}
             className={cn(
-              "flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors duration-200 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none",
+              "flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors duration-150 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none",
               current
                 ? "bg-primary text-primary-foreground"
-                : "text-foreground hover:bg-muted",
+                : pending
+                  ? "bg-muted text-foreground"
+                  : "text-foreground hover:bg-muted",
             )}
           >
             <Icon aria-hidden="true" className="size-4" />
             {link.label}
+            {pending ? (
+              <span className="ml-auto size-2 rounded-full bg-primary motion-safe:animate-pulse" />
+            ) : null}
           </Link>
         );
       })}
@@ -101,13 +104,65 @@ function LogoutButton() {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
+
+  useEffect(() => {
+    setPendingHref(null);
+  }, [pathname]);
+
+  useEffect(() => {
+    // Warm every admin route + POS as soon as shell mounts.
+    for (const link of links) {
+      router.prefetch(link.href);
+    }
+    router.prefetch("/pos");
+    router.prefetch("/admin/catalog?tab=inventory");
+    router.prefetch("/admin/finance?tab=expenses");
+    router.prefetch("/admin/finance?tab=summary");
+    router.prefetch("/admin/setup?tab=minibar");
+    // Warm POS room data in parallel so opening the kiosk is instant.
+    void import("@/lib/pos-client-data").then((mod) => {
+      void mod.loadPosSnapshot(false);
+    });
+  }, [router]);
+
+  function handleNavigate(href: string) {
+    setMenuOpen(false);
+    if (href === pathname) return;
+    // Instant paint of pending state; Link still performs the real navigation.
+    startTransition(() => {
+      setPendingHref(href);
+      router.prefetch(href);
+    });
+  }
 
   return (
     <div className="flex min-h-dvh flex-col bg-background md:flex-row">
+      {pendingHref ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-x-0 top-0 z-50 h-1 overflow-hidden bg-muted"
+        >
+          <div className="h-full w-1/3 bg-primary motion-safe:animate-pulse" />
+        </div>
+      ) : null}
+
       <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-card md:flex md:min-h-dvh">
         <Brand />
-        <NavLinks pathname={pathname} />
+        <NavLinks
+          pathname={pathname}
+          pendingHref={pendingHref}
+          onNavigate={handleNavigate}
+        />
+        <div className="flex flex-col gap-2 px-3 pb-2">
+          <WorkModeSwitch mode="pos" className="w-full" label="Làm quầy thu ngân" />
+          <p className="px-1 text-xs text-muted-foreground">
+            Quản lý cũng thu ngân được — chuyển sang quầy không cần đăng nhập lại.
+          </p>
+        </div>
         <LogoutButton />
       </aside>
 
@@ -138,12 +193,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <SheetTitle>Menu quản trị</SheetTitle>
             </SheetHeader>
             <Brand />
-            <NavLinks pathname={pathname} onNavigate={() => setMenuOpen(false)} />
+            <NavLinks
+              pathname={pathname}
+              pendingHref={pendingHref}
+              onNavigate={handleNavigate}
+            />
+            <div className="flex flex-col gap-2 px-3 pb-2">
+              <WorkModeSwitch mode="pos" className="w-full" label="Làm quầy thu ngân" />
+            </div>
             <LogoutButton />
           </SheetContent>
         </Sheet>
 
-        <main className="flex-1 px-4 py-6 md:px-8 md:py-8">{children}</main>
+        <main
+          className={cn(
+            "flex-1 px-4 py-6 transition-opacity duration-150 md:px-8 md:py-8",
+            pendingHref ? "opacity-60" : "opacity-100",
+          )}
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

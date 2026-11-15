@@ -1,12 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/utils/supabase/server";
+import { createDb } from "@/utils/supabase/db";
 import { checkAdminPin } from "@/lib/admin-pin";
+import { requireAdminSession } from "@/lib/admin-session";
+import { bustRoomsCache } from "@/lib/cache-tags";
 import { roundMoney } from "@/lib/money";
 import type { ActionResult } from "@/lib/pos-types";
 
 function refresh() {
+  bustRoomsCache();
+  revalidatePath("/admin/setup");
   revalidatePath("/admin/rooms");
   revalidatePath("/pos");
   revalidatePath("/admin/minibar");
@@ -17,6 +21,8 @@ export async function createRoom(input: {
   type: string;
   hourlyRate: number;
 }): Promise<ActionResult> {
+  const gate = await requireAdminSession();
+  if (!gate.ok) return gate;
   const name = input.name.trim();
   const type = input.type.trim();
   const hourlyRate = roundMoney(Number(input.hourlyRate));
@@ -26,7 +32,7 @@ export async function createRoom(input: {
     return { ok: false, error: "Giá giờ phải là số không âm." };
   }
 
-  const supabase = await createClient();
+  const supabase = createDb();
   const { error } = await supabase.from("rooms").insert({
     name,
     type,
@@ -43,10 +49,12 @@ export async function createRoom(input: {
 }
 
 export async function deleteRoom(id: string, managerPin: string): Promise<ActionResult> {
+  const gate = await requireAdminSession();
+  if (!gate.ok) return gate;
   if (!id) return { ok: false, error: "Không tìm thấy phòng." };
   const pinOk = await checkAdminPin(managerPin);
   if (!pinOk.ok) return pinOk;
-  const supabase = await createClient();
+  const supabase = createDb();
   const { data, error } = await supabase
     .from("rooms")
     .delete()

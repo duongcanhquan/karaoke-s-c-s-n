@@ -1,8 +1,13 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState } from "react";
-import { RevenueBoard } from "@/components/pos/revenue-board";
 import { Button } from "@/components/ui/button";
+
+const RevenueBoard = dynamic(
+  () => import("@/components/pos/revenue-board").then((mod) => mod.RevenueBoard),
+  { ssr: false },
+);
 
 export function AdminRevenueClient() {
   const [open, setOpen] = useState(false);
@@ -16,7 +21,7 @@ export function AdminRevenueClient() {
       >
         Mở bảng doanh thu
       </Button>
-      <RevenueBoard open={open} onOpenChange={setOpen} />
+      {open ? <RevenueBoard open={open} onOpenChange={setOpen} /> : null}
     </>
   );
 }

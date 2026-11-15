@@ -144,6 +144,14 @@ export type PaymentCheckout = {
   bankBin: string;
   bankAccountNumber: string;
   bankAccountName: string;
+  shopName: string;
+  shopAddress: string;
+  shopPhone: string;
+  receiptFooter: string;
+  printerPaperMm: 58 | 80;
+  printerAutoPrint: boolean;
+  printerCopies: number;
+  printerName: string;
 };
 
 export type PrepareCheckoutResult =

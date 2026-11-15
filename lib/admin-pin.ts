@@ -1,4 +1,4 @@
-import { createClient } from "@/utils/supabase/server";
+import { createDb } from "@/utils/supabase/db";
 
 /** Verify manager PIN against users.role = ADMIN. */
 export async function checkAdminPin(
@@ -7,7 +7,7 @@ export async function checkAdminPin(
   const pin = String(pinCode ?? "").trim();
   if (!pin) return { ok: false, error: "Nhập mã PIN quản lý." };
 
-  const supabase = await createClient();
+  const supabase = createDb();
   const { data, error } = await supabase
     .from("users")
     .select("id")

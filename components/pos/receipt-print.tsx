@@ -1,8 +1,47 @@
 "use client";
 
 import { formatVnd } from "@/lib/money";
+import {
+  defaultReceiptShopInfo,
+  loadPrinterPrefsLocal,
+  type ReceiptShopInfo,
+} from "@/lib/printer-prefs";
 import type { PaymentCheckout, PaymentMethod } from "@/lib/pos-types";
 import { vietQrImageUrl } from "@/lib/vietqr";
+
+function shopInfoFromPayment(payment: PaymentCheckout): ReceiptShopInfo {
+  return {
+    shopName: payment.shopName || defaultReceiptShopInfo.shopName,
+    shopAddress: payment.shopAddress || "",
+    shopPhone: payment.shopPhone || "",
+    receiptFooter: payment.receiptFooter || defaultReceiptShopInfo.receiptFooter,
+    printerPaperMm: payment.printerPaperMm === 58 ? 58 : 80,
+    printerAutoPrint: Boolean(payment.printerAutoPrint),
+    printerCopies: Math.min(3, Math.max(1, payment.printerCopies || 1)),
+    printerName: payment.printerName || "",
+  };
+}
+
+export function resolveReceiptShopInfo(payment?: PaymentCheckout | null): ReceiptShopInfo {
+  const local = typeof window !== "undefined" ? loadPrinterPrefsLocal() : null;
+  if (payment) {
+    const fromPay = shopInfoFromPayment(payment);
+    // Prefer server payment payload; fill gaps from local cache.
+    return {
+      ...fromPay,
+      shopName: fromPay.shopName || local?.shopName || defaultReceiptShopInfo.shopName,
+      shopAddress: fromPay.shopAddress || local?.shopAddress || "",
+      shopPhone: fromPay.shopPhone || local?.shopPhone || "",
+      receiptFooter:
+        fromPay.receiptFooter || local?.receiptFooter || defaultReceiptShopInfo.receiptFooter,
+      printerPaperMm: fromPay.printerPaperMm || local?.printerPaperMm || 80,
+      printerAutoPrint: fromPay.printerAutoPrint || Boolean(local?.printerAutoPrint),
+      printerCopies: fromPay.printerCopies || local?.printerCopies || 1,
+      printerName: fromPay.printerName || local?.printerName || "",
+    };
+  }
+  return local ?? defaultReceiptShopInfo;
+}
 
 export function printReceipt(input: {
   payment: PaymentCheckout;
@@ -10,8 +49,16 @@ export function printReceipt(input: {
   cashAmount: number;
   transferAmount: number;
   cashierName: string;
+  copies?: number;
 }) {
   const { payment, method, cashAmount, transferAmount, cashierName } = input;
+  const shop = resolveReceiptShopInfo(payment);
+  const copies = Math.min(3, Math.max(1, input.copies ?? shop.printerCopies));
+  const paper = shop.printerPaperMm;
+  const bodyWidth = paper === 58 ? "54mm" : "72mm";
+  const pageSize = paper === 58 ? "58mm auto" : "80mm auto";
+  const qrSize = paper === 58 ? "40mm" : "48mm";
+
   const when = new Intl.DateTimeFormat("vi-VN", {
     dateStyle: "short",
     timeStyle: "medium",
@@ -33,30 +80,40 @@ export function printReceipt(input: {
     )
     .join("");
 
+  const addressBlock = [
+    shop.shopAddress ? `<div class="muted">${escapeHtml(shop.shopAddress)}</div>` : "",
+    shop.shopPhone ? `<div class="muted">ĐT: ${escapeHtml(shop.shopPhone)}</div>` : "",
+  ].join("");
+
   const html = `<!doctype html>
 <html lang="vi">
 <head>
   <meta charset="utf-8" />
   <title>Hóa đơn ${escapeHtml(payment.roomName)}</title>
   <style>
-    @page { size: 80mm auto; margin: 4mm; }
-    body { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #000; width: 72mm; margin: 0 auto; }
-    h1 { font-size: 16px; margin: 0 0 4px; text-align: center; }
-    h2 { font-size: 13px; margin: 8px 0 4px; text-align: center; }
+    @page { size: ${pageSize}; margin: 3mm; }
+    body { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #000; width: ${bodyWidth}; margin: 0 auto; }
+    h1 { font-size: 15px; margin: 0 0 4px; text-align: center; text-transform: uppercase; }
     .muted { color: #333; font-size: 11px; text-align: center; }
     table { width: 100%; border-collapse: collapse; margin-top: 8px; }
     th, td { padding: 3px 0; vertical-align: top; }
     th { border-bottom: 1px dashed #000; text-align: left; }
     .num { text-align: right; white-space: nowrap; }
-    .total { font-size: 15px; font-weight: 700; margin-top: 8px; }
+    .total { font-size: 14px; font-weight: 700; margin-top: 8px; }
     .row { display: flex; justify-content: space-between; gap: 8px; margin: 2px 0; }
-    img.qr { display: block; width: 48mm; height: 48mm; margin: 8px auto; }
+    img.qr { display: block; width: ${qrSize}; height: ${qrSize}; margin: 8px auto; }
     hr { border: none; border-top: 1px dashed #000; margin: 8px 0; }
-    @media print { body { width: 72mm; } }
+    @media print {
+      body { width: ${bodyWidth}; }
+      .page-break { page-break-after: always; }
+    }
   </style>
 </head>
 <body>
-  <h1>KARAOKE</h1>
+  ${Array.from({ length: copies }, () => `
+  <section>
+  <h1>${escapeHtml(shop.shopName)}</h1>
+  ${addressBlock}
   <div class="muted">Hóa đơn thanh toán</div>
   <div class="muted">${escapeHtml(when)}</div>
   <hr />
@@ -84,8 +141,11 @@ export function printReceipt(input: {
       : ""
   }
   <hr />
-  <div class="muted">Cảm ơn quý khách</div>
-  <script>window.onload = () => { window.print(); setTimeout(() => window.close(), 400); };</script>
+  <div class="muted">${escapeHtml(shop.receiptFooter)}</div>
+  ${shop.printerName ? `<div class="muted">Máy in: ${escapeHtml(shop.printerName)}</div>` : ""}
+  </section>
+  `).join('<div class="page-break"></div>')}
+  <script>window.onload = () => { window.print(); setTimeout(() => window.close(), 500); };</script>
 </body>
 </html>`;
 
@@ -96,6 +156,39 @@ export function printReceipt(input: {
   popup.document.open();
   popup.document.write(html);
   popup.document.close();
+}
+
+/** Sample slip to verify Windows printer / paper size. */
+export function printTestReceipt(shop?: ReceiptShopInfo) {
+  const info = shop ?? resolveReceiptShopInfo(null);
+  const fakePayment: PaymentCheckout = {
+    invoiceId: "test",
+    roomName: "P.TEST",
+    roomType: "VIP",
+    startTime: new Date().toISOString(),
+    hourlyRate: 100000,
+    billableHours: 1,
+    roomTotal: 100000,
+    itemsTotal: 25000,
+    staffTotal: 0,
+    grandTotal: 125000,
+    lines: [
+      { productId: "1", name: "Nước suối", qty: 1, price: 15000, amount: 15000, canReduce: false },
+      { productId: "2", name: "Bia", qty: 1, price: 10000, amount: 10000, canReduce: false },
+    ],
+    bankBin: "",
+    bankAccountNumber: "",
+    bankAccountName: "",
+    ...info,
+  };
+  printReceipt({
+    payment: fakePayment,
+    method: "CASH",
+    cashAmount: fakePayment.grandTotal,
+    transferAmount: 0,
+    cashierName: "Kiểm tra in",
+    copies: 1,
+  });
 }
 
 function escapeHtml(value: string) {

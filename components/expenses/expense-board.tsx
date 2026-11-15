@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { logExpense } from "@/app/actions/expenses";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,7 +33,6 @@ export function ExpenseBoard({
   expenses: ExpenseRow[];
   today: string;
 }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -57,7 +55,6 @@ export function ExpenseBoard({
       }
       form.reset();
       toast.add({ title: "Đã lưu chi phí", type: "success" });
-      router.refresh();
     });
   }
 

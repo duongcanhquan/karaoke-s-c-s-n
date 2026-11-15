@@ -9,7 +9,7 @@ async function SettingsContent() {
     return (
       <LoadError
         message={result.error}
-        hint="Chạy file update_settings_schema.sql trong Supabase SQL Editor."
+        hint="Chạy update_shop_settings_full.sql (hoặc update_settings_schema.sql) trong Supabase SQL Editor."
       />
     );
   }
@@ -22,11 +22,16 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Cài đặt</h1>
         <p className="text-sm text-muted-foreground">
-          Tài khoản ngân hàng dùng cho mã QR thanh toán trên quầy.
+          Thông tin quán trên hóa đơn, tài khoản VietQR, và kết nối máy in nhiệt.
         </p>
       </div>
       <Suspense
-        fallback={<div className="h-48 max-w-xl rounded-xl bg-muted motion-safe:animate-pulse" aria-busy="true" />}
+        fallback={
+          <div
+            className="h-48 max-w-xl rounded-xl bg-muted motion-safe:animate-pulse"
+            aria-busy="true"
+          />
+        }
       >
         <SettingsContent />
       </Suspense>

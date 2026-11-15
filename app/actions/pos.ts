@@ -1,13 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/utils/supabase/server";
 import {
   availableQty,
   lineNeedsAudit,
   staffCustomerCharge,
 } from "@/lib/billing";
 import { checkAdminPin } from "@/lib/admin-pin";
+import { bustPosCache } from "@/lib/cache-tags";
+import { relatedDisplayName } from "@/lib/display-name";
 import { billableHours, roundMoney } from "@/lib/money";
 import type {
   ActionResult,
@@ -31,8 +32,9 @@ import {
   vietnamMonthBounds,
   vietnamWeekBounds,
 } from "@/lib/vietnam-time";
+import { createDb } from "@/utils/supabase/db";
 
-type Supabase = Awaited<ReturnType<typeof createClient>>;
+type Supabase = ReturnType<typeof createDb>;
 
 function fail(error: { message: string } | null, fallback: string): ActionResult | null {
   if (!error) return null;
@@ -40,15 +42,7 @@ function fail(error: { message: string } | null, fallback: string): ActionResult
 }
 
 function relatedName(value: unknown, fallback: string) {
-  if (!value) return fallback;
-  if (Array.isArray(value)) {
-    const first = value[0] as { name?: string } | undefined;
-    return first?.name ?? fallback;
-  }
-  if (typeof value === "object" && value && "name" in value) {
-    return String((value as { name: unknown }).name);
-  }
-  return fallback;
+  return relatedDisplayName(value, fallback);
 }
 
 function wholeNumber(value: number) {
@@ -57,7 +51,7 @@ function wholeNumber(value: number) {
 }
 
 function refreshPos(paths: string[] = ["/pos"]) {
-  // Only revalidate what the action actually changed — avoids extra Supabase reads on refresh.
+  bustPosCache();
   for (const path of paths) revalidatePath(path);
 }
 
@@ -98,7 +92,7 @@ export async function startRoom(
     }
   | { ok: false; error: string }
 > {
-  const supabase = await createClient();
+  const supabase = createDb();
   const { data: room, error } = await supabase
     .from("rooms")
     .update({ status: "IN_USE" })
@@ -149,11 +143,23 @@ async function seedMinibar(
   invoiceId: string,
   roomId: string,
 ): Promise<{ ok: true; items: StartedRoomItem[] } | { ok: false; error: string }> {
-  const { data, error } = await supabase
+  let setupQuery = await supabase
     .from("room_minibar_setup")
-    .select("product_id, default_quantity, products(name, selling_price, is_minibar_item)")
+    .select(
+      "product_id, default_quantity, products(name, display_name, selling_price, is_minibar_item)",
+    )
     .eq("room_id", roomId);
 
+  if (setupQuery.error && setupQuery.error.message.toLowerCase().includes("display_name")) {
+    setupQuery = (await supabase
+      .from("room_minibar_setup")
+      .select(
+        "product_id, default_quantity, products(name, selling_price, is_minibar_item)",
+      )
+      .eq("room_id", roomId)) as typeof setupQuery;
+  }
+
+  const { data, error } = setupQuery;
   if (error) return { ok: false, error: error.message || "Không đọc được minibar của phòng." };
 
   type SeedRow = {
@@ -171,10 +177,16 @@ async function seedMinibar(
   for (const setup of data ?? []) {
     const quantity = Number(setup.default_quantity);
     const related = (Array.isArray(setup.products) ? setup.products[0] : setup.products) as
-      | { name?: unknown; selling_price?: unknown; is_minibar_item?: unknown }
+      | {
+          name?: unknown;
+          display_name?: unknown;
+          selling_price?: unknown;
+          is_minibar_item?: unknown;
+        }
       | null
       | undefined;
     const price = Number(related?.selling_price);
+    if (!related?.is_minibar_item) continue;
     if (!Number.isInteger(quantity) || quantity <= 0 || !Number.isFinite(price)) continue;
     rows.push({
       invoice_id: invoiceId,
@@ -183,8 +195,8 @@ async function seedMinibar(
       ordered_qty: 0,
       remaining_qty: quantity,
       price,
-      name: String(related?.name ?? "Món"),
-      isMinibar: Boolean(related?.is_minibar_item ?? true),
+      name: relatedName(setup.products, "Món"),
+      isMinibar: true,
     });
   }
 
@@ -231,7 +243,7 @@ export async function addInvoiceItem(
   invoiceId: string,
   productId: string,
 ): Promise<ActionResult> {
-  const supabase = await createClient();
+  const supabase = createDb();
   const { data: invoice, error: invoiceError } = await activeInvoice(supabase, invoiceId);
 
   const invoiceFailure = fail(invoiceError, "Không đọc được hóa đơn.");
@@ -308,10 +320,12 @@ export async function adjustInvoiceItem(
   productId: string,
   delta: number,
   managerPin?: string,
+  /** "ordered" = menu/bill taps; "consumed" = payment screen after audit. */
+  mode: "ordered" | "consumed" = "ordered",
 ): Promise<ActionResult> {
   if (delta !== 1 && delta !== -1) return { ok: false, error: "Số lượng không hợp lệ." };
 
-  const supabase = await createClient();
+  const supabase = createDb();
   if (delta < 0) {
     const admin = await requireAdminPin(managerPin);
     if (!admin.ok) return admin;
@@ -341,6 +355,46 @@ export async function adjustInvoiceItem(
   const existingFailure = fail(existingError, "Không đọc được dòng hóa đơn.");
   if (existingFailure) return existingFailure;
 
+  // Payment screen: change consumed via remaining (consumed = initial+ordered-remaining).
+  if (mode === "consumed" && minibar) {
+    if (!existing) {
+      if (delta < 0) return { ok: false, error: "Món chưa có trên hóa đơn." };
+      const { error } = await supabase.from("invoice_items").insert({
+        invoice_id: invoiceId,
+        product_id: productId,
+        initial_qty: 0,
+        ordered_qty: 1,
+        remaining_qty: 0,
+        price: Number(product.selling_price),
+      });
+      const insertFailure = fail(error, "Không thêm được món.");
+      if (insertFailure) return insertFailure;
+      return { ok: true };
+    }
+
+    const initial = Number(existing.initial_qty);
+    const ordered = Number(existing.ordered_qty);
+    const available = initial + ordered;
+    // +1 consumed → remaining -1; -1 consumed → remaining +1
+    const nextRemaining = Math.min(
+      available,
+      Math.max(0, Number(existing.remaining_qty) - delta),
+    );
+    if (nextRemaining === Number(existing.remaining_qty)) {
+      return {
+        ok: false,
+        error: delta > 0 ? "Không tăng thêm được (đã dùng hết)." : "Không giảm dưới 0 đã dùng.",
+      };
+    }
+    const { error } = await supabase
+      .from("invoice_items")
+      .update({ remaining_qty: nextRemaining })
+      .eq("id", existing.id);
+    const updateFailure = fail(error, "Không sửa được số lượng.");
+    if (updateFailure) return updateFailure;
+    return { ok: true };
+  }
+
   if (!existing) {
     if (delta < 0) return { ok: false, error: "Món chưa có trên hóa đơn." };
     const { error } = await supabase.from("invoice_items").insert({
@@ -348,7 +402,8 @@ export async function adjustInvoiceItem(
       product_id: productId,
       initial_qty: 0,
       ordered_qty: 1,
-      remaining_qty: minibar ? 1 : 0,
+      // Payment non-minibar: remaining 0 → consumed 1. Menu minibar seed: remaining 1 until audit.
+      remaining_qty: mode === "consumed" ? 0 : minibar ? 1 : 0,
       price: Number(product.selling_price),
     });
     const insertFailure = fail(error, "Không thêm được món.");
@@ -405,7 +460,7 @@ export async function assignStaffBooking(input: {
     return { ok: false, error: "Tiền trả nhân viên không được cao hơn giá khách." };
   }
 
-  const supabase = await createClient();
+  const supabase = createDb();
   const { data: invoice, error: invoiceError } = await activeInvoice(supabase, input.invoiceId);
   const invoiceFailure = fail(invoiceError, "Không đọc được hóa đơn.");
   if (invoiceFailure) return invoiceFailure;
@@ -426,7 +481,7 @@ export async function assignStaffBooking(input: {
 }
 
 export async function removeStaffBooking(bookingId: string): Promise<ActionResult> {
-  const supabase = await createClient();
+  const supabase = createDb();
   const { data: booking, error: readError } = await supabase
     .from("invoice_staff_bookings")
     .select("id, invoice_id")
@@ -457,11 +512,21 @@ async function applyAudit(
   invoiceId: string,
   audit: StockAuditLine[],
 ): Promise<ActionResult> {
-  const { data: lines, error: lineError } = await supabase
+  let linesQuery = await supabase
     .from("invoice_items")
-    .select("id, product_id, initial_qty, ordered_qty, products(name, is_minibar_item)")
+    .select(
+      "id, product_id, initial_qty, ordered_qty, products(name, display_name, is_minibar_item)",
+    )
     .eq("invoice_id", invoiceId);
 
+  if (linesQuery.error && linesQuery.error.message.toLowerCase().includes("display_name")) {
+    linesQuery = (await supabase
+      .from("invoice_items")
+      .select("id, product_id, initial_qty, ordered_qty, products(name, is_minibar_item)")
+      .eq("invoice_id", invoiceId)) as typeof linesQuery;
+  }
+
+  const { data: lines, error: lineError } = linesQuery;
   const lineFailure = fail(lineError, "Không đọc được món trên hóa đơn.");
   if (lineFailure) return lineFailure;
 
@@ -575,18 +640,24 @@ async function loadInvoiceTotals(
   if (roomError) return { error: roomError.message };
   if (!room) return { error: "Không tìm thấy phòng của hóa đơn." };
 
-  const { data: itemRows, error: itemError } = await supabase
+  let itemsQuery = await supabase
     .from("invoice_items")
-    .select("product_id, consumed_qty, ordered_qty, price, products(name)")
+    .select("product_id, consumed_qty, ordered_qty, price, products(name, display_name)")
     .eq("invoice_id", invoiceId);
+  if (itemsQuery.error && itemsQuery.error.message.toLowerCase().includes("display_name")) {
+    itemsQuery = (await supabase
+      .from("invoice_items")
+      .select("product_id, consumed_qty, ordered_qty, price, products(name)")
+      .eq("invoice_id", invoiceId)) as typeof itemsQuery;
+  }
+  const { data: itemRows, error: itemError } = itemsQuery;
   if (itemError) return { error: itemError.message };
 
   const lines: ReceiptLine[] = [];
   let itemsTotal = 0;
   for (const item of itemRows ?? []) {
-    const qty = Math.max(0, Number(item.consumed_qty));
-    if (qty <= 0 && Number(item.ordered_qty) <= 0) continue;
-    const chargeQty = qty > 0 ? qty : Number(item.ordered_qty);
+    // Bill only what was consumed after audit — never fall back to ordered_qty.
+    const chargeQty = Math.max(0, Number(item.consumed_qty));
     if (chargeQty <= 0) continue;
     const price = Number(item.price);
     const amount = roundMoney(chargeQty * price);
@@ -597,7 +668,7 @@ async function loadInvoiceTotals(
       qty: chargeQty,
       price,
       amount,
-      canReduce: Number(item.ordered_qty) > 0,
+      canReduce: chargeQty > 0,
     });
   }
 
@@ -650,19 +721,58 @@ async function loadInvoiceTotals(
 }
 
 async function bankSettings(supabase: Supabase) {
-  const { data: settings, error } = await supabase
+  const full = await supabase
+    .from("shop_settings")
+    .select(
+      "bank_bin, bank_account_number, bank_account_name, shop_name, shop_address, shop_phone, receipt_footer, printer_paper_mm, printer_auto_print, printer_copies, printer_name",
+    )
+    .order("id")
+    .limit(1)
+    .maybeSingle();
+
+  if (!full.error) {
+    const settings = full.data;
+    const paper = Number(settings?.printer_paper_mm) === 58 ? 58 : 80;
+    return {
+      error: null as string | null,
+      settings: {
+        bankBin: String(settings?.bank_bin ?? ""),
+        bankAccountNumber: String(settings?.bank_account_number ?? ""),
+        bankAccountName: String(settings?.bank_account_name ?? ""),
+        shopName: String(settings?.shop_name ?? "Karaoke"),
+        shopAddress: String(settings?.shop_address ?? ""),
+        shopPhone: String(settings?.shop_phone ?? ""),
+        receiptFooter: String(settings?.receipt_footer ?? "Cảm ơn quý khách"),
+        printerPaperMm: paper as 58 | 80,
+        printerAutoPrint: Boolean(settings?.printer_auto_print),
+        printerCopies: Math.min(3, Math.max(1, Number(settings?.printer_copies) || 1)),
+        printerName: String(settings?.printer_name ?? ""),
+      },
+    };
+  }
+
+  // Pre-migration fallback (bank columns only).
+  const basic = await supabase
     .from("shop_settings")
     .select("bank_bin, bank_account_number, bank_account_name")
     .order("id")
     .limit(1)
     .maybeSingle();
-  if (error) return { error: error.message, settings: null };
+  if (basic.error) return { error: basic.error.message, settings: null };
   return {
     error: null as string | null,
     settings: {
-      bankBin: String(settings?.bank_bin ?? ""),
-      bankAccountNumber: String(settings?.bank_account_number ?? ""),
-      bankAccountName: String(settings?.bank_account_name ?? ""),
+      bankBin: String(basic.data?.bank_bin ?? ""),
+      bankAccountNumber: String(basic.data?.bank_account_number ?? ""),
+      bankAccountName: String(basic.data?.bank_account_name ?? ""),
+      shopName: "Karaoke",
+      shopAddress: "",
+      shopPhone: "",
+      receiptFooter: "Cảm ơn quý khách",
+      printerPaperMm: 80 as const,
+      printerAutoPrint: false,
+      printerCopies: 1,
+      printerName: "",
     },
   };
 }
@@ -700,7 +810,7 @@ export async function prepareCheckout(
   invoiceId: string,
   audit: StockAuditLine[],
 ): Promise<PrepareCheckoutResult> {
-  const supabase = await createClient();
+  const supabase = createDb();
   const applied = await applyAudit(supabase, invoiceId, audit);
   if (!applied.ok) return applied;
 
@@ -746,7 +856,7 @@ export async function prepareCheckout(
 }
 
 export async function recomputeCheckout(invoiceId: string): Promise<PrepareCheckoutResult> {
-  const supabase = await createClient();
+  const supabase = createDb();
   const totals = await loadInvoiceTotals(supabase, invoiceId, { requireActive: true });
   if (totals.error || !totals.invoice) {
     return { ok: false, error: totals.error ?? "Không tính được hóa đơn." };
@@ -776,7 +886,7 @@ export async function confirmPaid(input: ConfirmPaymentInput): Promise<ActionRes
     return { ok: false, error: "Số tiền thanh toán không hợp lệ." };
   }
 
-  const supabase = await createClient();
+  const supabase = createDb();
   const totals = await loadInvoiceTotals(supabase, input.invoiceId, { requireActive: true });
   if (totals.error || !totals.invoice) {
     return { ok: false, error: totals.error ?? "Không chốt được hóa đơn." };
@@ -872,7 +982,7 @@ export async function listPeriodRevenue(
         ? formatVietnamWeekLong(periodKey)
         : formatVietnamMonthLong(periodKey);
 
-  const supabase = await createClient();
+  const supabase = createDb();
   let { data, error } = await supabase
     .from("invoices")
     .select(
@@ -919,8 +1029,8 @@ export async function listPeriodRevenue(
     ]);
 
     for (const item of items ?? []) {
-      const qty = Math.max(0, Number(item.consumed_qty));
-      const chargeQty = qty > 0 ? qty : Math.max(0, Number(item.ordered_qty));
+      const chargeQty = Math.max(0, Number(item.consumed_qty));
+      if (chargeQty <= 0) continue;
       const amount = roundMoney(chargeQty * Number(item.price));
       const key = String(item.invoice_id);
       itemsByInvoice.set(key, roundMoney((itemsByInvoice.get(key) ?? 0) + amount));
@@ -1007,7 +1117,7 @@ export async function listMonthlyRevenue(yearMonth: string) {
 export async function getPaidBillDetail(
   invoiceId: string,
 ): Promise<{ ok: true; data: PaidBillDetail } | { ok: false; error: string }> {
-  const supabase = await createClient();
+  const supabase = createDb();
   const totals = await loadInvoiceTotals(supabase, invoiceId);
   if (totals.error || !totals.invoice) {
     return { ok: false, error: totals.error ?? "Không đọc được hóa đơn." };
@@ -1050,7 +1160,7 @@ export async function adjustPaidInvoiceItem(
 ): Promise<ActionResult> {
   if (delta !== 1 && delta !== -1) return { ok: false, error: "Số lượng không hợp lệ." };
 
-  const supabase = await createClient();
+  const supabase = createDb();
   const admin = await requireAdminPin(managerPin);
   if (!admin.ok) return admin;
 
@@ -1082,6 +1192,7 @@ export async function adjustPaidInvoiceItem(
 
   const oldConsumed = existing ? Math.max(0, Number(existing.consumed_qty)) : 0;
 
+  // Paid-bill edits always change consumed qty (minibar via remaining).
   if (!existing) {
     if (delta < 0) return { ok: false, error: "Món chưa có trên hóa đơn." };
     const { error } = await supabase.from("invoice_items").insert({
@@ -1089,11 +1200,31 @@ export async function adjustPaidInvoiceItem(
       product_id: productId,
       initial_qty: 0,
       ordered_qty: 1,
-      remaining_qty: minibar ? 1 : 0,
+      remaining_qty: 0, // consumed = 1
       price: Number(product.selling_price),
     });
     const insertFailure = fail(error, "Không thêm được món.");
     if (insertFailure) return insertFailure;
+  } else if (minibar) {
+    const initial = Number(existing.initial_qty);
+    const ordered = Number(existing.ordered_qty);
+    const available = initial + ordered;
+    const nextRemaining = Math.min(
+      available,
+      Math.max(0, Number(existing.remaining_qty) - delta),
+    );
+    if (nextRemaining === Number(existing.remaining_qty)) {
+      return {
+        ok: false,
+        error: delta > 0 ? "Không tăng thêm được (đã dùng hết)." : "Không giảm dưới 0 đã dùng.",
+      };
+    }
+    const { error } = await supabase
+      .from("invoice_items")
+      .update({ remaining_qty: nextRemaining })
+      .eq("id", existing.id);
+    const updateFailure = fail(error, "Không sửa được số lượng.");
+    if (updateFailure) return updateFailure;
   } else {
     const initial = Number(existing.initial_qty);
     const ordered = Number(existing.ordered_qty) + delta;
@@ -1103,13 +1234,9 @@ export async function adjustPaidInvoiceItem(
       const deleteFailure = fail(error, "Không xóa được món.");
       if (deleteFailure) return deleteFailure;
     } else {
-      const available = initial + ordered;
-      const remaining = minibar
-        ? Math.min(available, Math.max(0, Number(existing.remaining_qty) + delta))
-        : 0;
       const { error } = await supabase
         .from("invoice_items")
-        .update({ ordered_qty: ordered, remaining_qty: remaining })
+        .update({ ordered_qty: ordered, remaining_qty: 0 })
         .eq("id", existing.id);
       const updateFailure = fail(error, "Không sửa được số lượng.");
       if (updateFailure) return updateFailure;
@@ -1177,12 +1304,12 @@ export async function adjustPaidInvoiceItem(
     .eq("status", "PAID");
   if (saveError) return { ok: false, error: saveError.message };
 
-  refreshPos(["/admin/revenue", "/admin/inventory"]);
+  refreshPos(["/admin/revenue", "/admin/finance", "/admin/inventory"]);
   return { ok: true };
 }
 
 export async function markRoomAvailable(roomId: string): Promise<ActionResult> {
-  const supabase = await createClient();
+  const supabase = createDb();
   const { data, error } = await supabase
     .from("rooms")
     .update({ status: "AVAILABLE" })

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Minus, Plus } from "lucide-react";
 import { printReceipt } from "@/components/pos/receipt-print";
 import { Button } from "@/components/ui/button";
+import { savePrinterPrefsLocal } from "@/lib/printer-prefs";
 import {
   Dialog,
   DialogContent,
@@ -40,9 +41,20 @@ export function PaymentDialog({
 
   useEffect(() => {
     if (!open || !payment) return;
+    // Only reset when opening a bill — not when totals change after +/- lines.
     setMethod("QR");
     setCashInput(String(Math.round(payment.grandTotal / 2)));
-  }, [open, payment?.invoiceId, payment?.grandTotal]);
+    savePrinterPrefsLocal({
+      shopName: payment.shopName || "Karaoke",
+      shopAddress: payment.shopAddress || "",
+      shopPhone: payment.shopPhone || "",
+      receiptFooter: payment.receiptFooter || "Cảm ơn quý khách",
+      printerPaperMm: payment.printerPaperMm === 58 ? 58 : 80,
+      printerAutoPrint: Boolean(payment.printerAutoPrint),
+      printerCopies: Math.min(3, Math.max(1, payment.printerCopies || 1)),
+      printerName: payment.printerName || "",
+    });
+  }, [open, payment?.invoiceId]);
 
   const amounts = useMemo(() => {
     if (!payment) return { cash: 0, transfer: 0 };
@@ -259,13 +271,33 @@ export function PaymentDialog({
             type="button"
             className="h-16 w-full text-2xl font-bold"
             disabled={pending || !qrOk || !splitValid}
-            onClick={() =>
+            onClick={() => {
+              if (checkout.printerAutoPrint) {
+                try {
+                  printReceipt({
+                    payment: checkout,
+                    method,
+                    cashAmount: amounts.cash,
+                    transferAmount: amounts.transfer,
+                    cashierName,
+                  });
+                } catch (error) {
+                  toast.add({
+                    title: "Thu tiền OK nhưng chưa in được",
+                    description:
+                      error instanceof Error
+                        ? error.message
+                        : "Cho phép popup rồi in lại từ lịch sử nếu cần",
+                    type: "error",
+                  });
+                }
+              }
               onConfirmPaid({
                 method,
                 cashAmount: amounts.cash,
                 transferAmount: amounts.transfer,
-              })
-            }
+              });
+            }}
           >
             {pending ? "Đang xác nhận" : "Đã thu tiền"}
           </Button>

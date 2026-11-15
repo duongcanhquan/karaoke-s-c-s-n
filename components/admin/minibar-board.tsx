@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { removeRoomMinibar, saveRoomMinibar } from "@/app/actions/minibar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,7 +34,6 @@ export function MinibarBoard({
   products: MinibarProduct[];
   setups: MinibarSetup[];
 }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const ready = rooms.length > 0 && products.length > 0;
@@ -71,7 +69,6 @@ export function MinibarBoard({
                 }
                 form.reset();
                 toast.add({ title: "Đã gán minibar", type: "success" });
-                router.refresh();
               });
             }}
           >
@@ -195,7 +192,6 @@ export function MinibarBoard({
                               return;
                             }
                             toast.add({ title: "Đã gỡ khỏi phòng", type: "success" });
-                            router.refresh();
                           });
                         }}
                       >

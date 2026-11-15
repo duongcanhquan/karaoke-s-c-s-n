@@ -1,10 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/utils/supabase/server";
+import { createDb } from "@/utils/supabase/db";
+import { requireAdminSession } from "@/lib/admin-session";
+import { bustMinibarCache } from "@/lib/cache-tags";
 import type { ActionResult } from "@/lib/pos-types";
 
 function refresh() {
+  bustMinibarCache();
+  revalidatePath("/admin/setup");
   revalidatePath("/admin/minibar");
   revalidatePath("/pos");
 }
@@ -14,6 +18,8 @@ export async function saveRoomMinibar(input: {
   productId: string;
   defaultQuantity: number;
 }): Promise<ActionResult> {
+  const gate = await requireAdminSession();
+  if (!gate.ok) return gate;
   const quantity = Number(input.defaultQuantity);
   if (!input.roomId) return { ok: false, error: "Chọn phòng." };
   if (!input.productId) return { ok: false, error: "Chọn món minibar." };
@@ -21,7 +27,7 @@ export async function saveRoomMinibar(input: {
     return { ok: false, error: "Số lượng mặc định phải là số nguyên lớn hơn 0." };
   }
 
-  const supabase = await createClient();
+  const supabase = createDb();
   const { data: product, error: productError } = await supabase
     .from("products")
     .select("id, is_minibar_item")
@@ -63,8 +69,10 @@ export async function saveRoomMinibar(input: {
 }
 
 export async function removeRoomMinibar(id: string): Promise<ActionResult> {
+  const gate = await requireAdminSession();
+  if (!gate.ok) return gate;
   if (!id) return { ok: false, error: "Không tìm thấy dòng minibar." };
-  const supabase = await createClient();
+  const supabase = createDb();
   const { error } = await supabase.from("room_minibar_setup").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
 

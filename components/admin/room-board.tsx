@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { createRoom, deleteRoom } from "@/app/actions/rooms";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,7 +26,6 @@ export type AdminRoom = {
 };
 
 export function RoomBoard({ rooms }: { rooms: AdminRoom[] }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<AdminRoom | null>(null);
@@ -62,7 +60,6 @@ export function RoomBoard({ rooms }: { rooms: AdminRoom[] }) {
                 }
                 form.reset();
                 toast.add({ title: "Đã thêm phòng", type: "success" });
-                router.refresh();
               });
             }}
           >
@@ -179,7 +176,6 @@ export function RoomBoard({ rooms }: { rooms: AdminRoom[] }) {
                     setRemoving(null);
                     setDeletePin("");
                     toast.add({ title: "Đã xóa phòng", type: "success" });
-                    router.refresh();
                   });
                 }}
               >
