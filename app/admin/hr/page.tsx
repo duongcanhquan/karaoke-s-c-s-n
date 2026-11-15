@@ -156,6 +156,8 @@ async function HrContent({ active }: { active: HrTab }) {
     if (!retry.error || isMissingDisplayNameError(bookingResult.error?.message)) {
       bookingResult = looseRows(retry);
     }
+  }
+
   const softHints: string[] = [];
   // Soft-fail phụ — không được nuốt danh sách nhân viên.
   if (bookingResult.error) {
