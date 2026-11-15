@@ -2,13 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
+import { checkAdminPin } from "@/lib/admin-pin";
 import { roundMoney } from "@/lib/money";
 import type { ActionResult } from "@/lib/pos-types";
 import { isStaffRole } from "@/lib/session";
 
 function refresh() {
   revalidatePath("/admin/hr");
-  revalidatePath("/pos");
+  // POS no longer loads staff for bookings — skip /pos revalidate lag.
 }
 
 function normalizeName(value: string) {
@@ -109,8 +110,13 @@ export async function updateStaff(input: {
   return { ok: true };
 }
 
-export async function deleteStaff(userId: string): Promise<ActionResult> {
+export async function deleteStaff(
+  userId: string,
+  managerPin: string,
+): Promise<ActionResult> {
   if (!userId) return { ok: false, error: "Không tìm thấy nhân viên." };
+  const pinOk = await checkAdminPin(managerPin);
+  if (!pinOk.ok) return pinOk;
 
   const supabase = await createClient();
   const { data: current, error: currentError } = await supabase

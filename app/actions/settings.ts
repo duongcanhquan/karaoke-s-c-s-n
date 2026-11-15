@@ -64,6 +64,6 @@ export async function saveShopSettings(input: {
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/admin/settings");
-  revalidatePath("/pos");
+  // Bank QR is loaded at checkout time — no need to revalidate POS.
   return { ok: true };
 }

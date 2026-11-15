@@ -12,6 +12,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  Calculator,
+  CircleDollarSign,
   DoorOpen,
   LayoutDashboard,
   Menu,
@@ -27,6 +29,8 @@ import { cn } from "cn";
 
 const links: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/admin", label: "Tổng quan", icon: LayoutDashboard },
+  { href: "/admin/summary", label: "Tổng hợp", icon: Calculator },
+  { href: "/admin/revenue", label: "Doanh thu", icon: CircleDollarSign },
   { href: "/admin/products", label: "Thực đơn", icon: UtensilsCrossed },
   { href: "/admin/rooms", label: "Phòng", icon: DoorOpen },
   { href: "/admin/minibar", label: "Tủ minibar", icon: Wine },

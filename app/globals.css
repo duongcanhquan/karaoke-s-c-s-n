@@ -142,14 +142,25 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
   html {
     @apply font-sans;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    @apply bg-background font-sans text-foreground;
+    font-family: var(--font-geist-sans), "Be Vietnam Pro", "Segoe UI", Tahoma, sans-serif;
+  }
+  .font-mono,
+  :where(.tabular-nums) {
+    font-family: var(--font-geist-mono), "JetBrains Mono", ui-monospace, Consolas, monospace;
+  }
+  .font-heading {
+    font-family: var(--font-display), "Playfair Display", Georgia, "Times New Roman", serif;
   }
   h1 {
-    font-family: var(--font-display), Georgia, serif;
+    font-family: var(--font-display), "Playfair Display", Georgia, serif;
     color: var(--primary);
     letter-spacing: -0.02em;
   }

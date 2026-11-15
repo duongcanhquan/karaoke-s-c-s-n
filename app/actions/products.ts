@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
+import { checkAdminPin } from "@/lib/admin-pin";
 import { isProductCategory, type ProductCategory } from "@/lib/catalog";
 import { roundMoney } from "@/lib/money";
 import type { ActionResult } from "@/lib/pos-types";
@@ -111,8 +112,10 @@ export async function setMinibarItem(id: string, isMinibarItem: boolean): Promis
   return { ok: true };
 }
 
-export async function deleteProduct(id: string): Promise<ActionResult> {
+export async function deleteProduct(id: string, managerPin: string): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Không tìm thấy món." };
+  const pinOk = await checkAdminPin(managerPin);
+  if (!pinOk.ok) return pinOk;
   const supabase = await createClient();
   const { error } = await supabase.from("products").delete().eq("id", id);
 

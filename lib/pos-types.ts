@@ -53,8 +53,15 @@ export type StaffOption = {
   role: string;
 };
 
+export type RoomSetupItem = {
+  productId: string;
+  productName: string;
+  quantity: number;
+};
+
 export type StockAuditLine = {
-  itemId: string;
+  /** Match by product — never by optimistic local item ids. */
+  productId: string;
   remainingQty: number;
 };
 
@@ -63,11 +70,64 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 export type PaymentMethod = "CASH" | "QR" | "SPLIT";
 
 export type ReceiptLine = {
+  productId: string;
   name: string;
   qty: number;
   price: number;
   amount: number;
+  canReduce: boolean;
 };
+
+export type ConfirmPaymentInput = {
+  invoiceId: string;
+  method: PaymentMethod;
+  cashAmount: number;
+  transferAmount: number;
+};
+
+export type PaidBillSummary = {
+  id: string;
+  roomName: string;
+  startTime: string;
+  endTime: string;
+  billableHours: number;
+  roomTotal: number;
+  itemsTotal: number;
+  staffTotal: number;
+  grandTotal: number;
+  paymentMethod: PaymentMethod | null;
+  cashAmount: number;
+  transferAmount: number;
+};
+
+export type PaidBillDetail = PaidBillSummary & {
+  roomType: string;
+  hourlyRate: number;
+  lines: ReceiptLine[];
+};
+
+export type RevenuePeriod = "day" | "week" | "month";
+
+export type PeriodRevenue = {
+  period: RevenuePeriod;
+  periodKey: string;
+  label: string;
+  longLabel: string;
+  /** @deprecated use periodKey — kept for older month-only callers */
+  yearMonth: string;
+  monthLabel: string;
+  monthLongLabel: string;
+  billCount: number;
+  roomTotal: number;
+  itemsTotal: number;
+  staffTotal: number;
+  grandTotal: number;
+  cashTotal: number;
+  transferTotal: number;
+  bills: PaidBillSummary[];
+};
+
+export type MonthlyRevenue = PeriodRevenue;
 
 export type PaymentCheckout = {
   invoiceId: string;

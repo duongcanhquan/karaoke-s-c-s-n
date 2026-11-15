@@ -4,7 +4,15 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { PosKiosk, type PosBill } from "@/components/pos/pos-kiosk";
 import { staffCustomerCharge } from "@/lib/billing";
-import type { InvoiceItem, Product, Room, RoomStatus, StaffBooking, StaffOption } from "@/lib/pos-types";
+import type {
+  InvoiceItem,
+  Product,
+  Room,
+  RoomSetupItem,
+  RoomStatus,
+  StaffBooking,
+  StaffOption,
+} from "@/lib/pos-types";
 import { decodeSession, SESSION_COOKIE } from "@/lib/session";
 import { createClient } from "@/utils/supabase/server";
 
@@ -38,21 +46,27 @@ async function PosContent() {
   if (!session) redirect("/");
 
   const supabase = await createClient();
-  const [roomsResult, productsResult, staffResult, invoiceResult] = await Promise.all([
+  // Skip staff list — POS no longer assigns staff from the kiosk (faster first paint).
+  const [roomsResult, productsResult, invoiceResult, setupResult] = await Promise.all([
     supabase.from("rooms").select("id, name, type, hourly_rate, status").order("name"),
-    supabase.from("products").select("id, name, category, selling_price, is_minibar_item").order("name"),
-    supabase.from("users").select("id, name, role").order("name"),
+    supabase
+      .from("products")
+      .select("id, name, category, selling_price, is_minibar_item")
+      .order("name"),
     supabase
       .from("invoices")
       .select("id, room_id, start_time, service_total")
       .eq("status", "ACTIVE"),
+    supabase
+      .from("room_minibar_setup")
+      .select("room_id, product_id, default_quantity, products(name)"),
   ]);
 
   const loadError =
     roomsResult.error?.message ??
     productsResult.error?.message ??
-    staffResult.error?.message ??
-    invoiceResult.error?.message;
+    invoiceResult.error?.message ??
+    setupResult.error?.message;
 
   if (loadError) {
     return (
@@ -151,11 +165,22 @@ async function PosContent() {
     selling_price: asNumber(product.selling_price),
     is_minibar_item: Boolean(product.is_minibar_item),
   }));
-  const staff: StaffOption[] = (staffResult.data ?? []).map((member) => ({
-    id: String(member.id),
-    name: String(member.name),
-    role: String(member.role),
-  }));
+  const staff: StaffOption[] = [];
+
+  const roomSetups: Record<string, RoomSetupItem[]> = {};
+  for (const setup of setupResult.data ?? []) {
+    const roomId = String(setup.room_id);
+    const list = roomSetups[roomId] ?? [];
+    list.push({
+      productId: String(setup.product_id),
+      productName: relatedName(setup.products, "Món"),
+      quantity: asNumber(setup.default_quantity),
+    });
+    roomSetups[roomId] = list;
+  }
+  for (const roomId of Object.keys(roomSetups)) {
+    roomSetups[roomId].sort((a, b) => a.productName.localeCompare(b.productName, "vi"));
+  }
 
   return (
     <PosKiosk
@@ -164,6 +189,7 @@ async function PosContent() {
       products={products}
       staff={staff}
       bills={bills}
+      roomSetups={roomSetups}
     />
   );
 }

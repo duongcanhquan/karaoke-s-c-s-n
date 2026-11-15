@@ -19,7 +19,8 @@ export default function LoginPage() {
           <span aria-hidden="true" className="mt-3 block h-0.5 w-12 rounded-full bg-gold" />
           <h1 className="mt-4 text-2xl">Đăng nhập ca</h1>
           <p className="mt-1 text-base text-muted-foreground">
-            Nhập đúng tên và mã PIN đã đăng ký. Thu ngân / phục vụ vào quầy. Quản lý vào bảng điều khiển.
+            Nhập đúng tên và mã PIN. Quản lý: <span className="font-semibold text-foreground">Quanly</span> / PIN{" "}
+            <span className="font-semibold text-foreground">1234</span>. Thu ngân / phục vụ vào quầy.
           </p>
         </div>
         <label htmlFor="name" className="flex flex-col gap-2 text-lg font-medium">

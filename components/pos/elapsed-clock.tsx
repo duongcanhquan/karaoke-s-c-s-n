@@ -24,6 +24,7 @@ export function ElapsedClock({
 
   useEffect(() => {
     if (reducedMotion) return;
+    // Local timer only — no Supabase. 1s is fine while the audit dialog is open briefly.
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [reducedMotion]);

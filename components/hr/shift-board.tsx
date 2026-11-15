@@ -151,6 +151,7 @@ export function ShiftBoard({
   const [shiftError, setShiftError] = useState<string | null>(null);
   const [editing, setEditing] = useState<StaffMember | null>(null);
   const [removing, setRemoving] = useState<StaffMember | null>(null);
+  const [deletePin, setDeletePin] = useState("");
 
   function run(
     action: () => Promise<{ ok: true } | { ok: false; error: string }>,
@@ -502,16 +503,33 @@ export function ShiftBoard({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={removing !== null} onOpenChange={(open) => !open && setRemoving(null)}>
+      <Dialog
+        open={removing !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRemoving(null);
+            setDeletePin("");
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Xóa nhân viên?</DialogTitle>
             <DialogDescription>
               {removing
-                ? `Xóa “${removing.name}” khỏi danh sách đăng nhập. Không xóa được nếu đã có ca hoặc lịch phục vụ.`
+                ? `Xóa “${removing.name}” — cần PIN quản lý. Không xóa được nếu đã có ca hoặc lịch phục vụ.`
                 : null}
             </DialogDescription>
           </DialogHeader>
+          <Input
+            type="password"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="PIN quản lý"
+            value={deletePin}
+            onChange={(event) => setDeletePin(event.target.value)}
+            className="min-h-12 text-center text-xl font-bold tracking-[0.3em]"
+          />
           {staffError ? (
             <p role="alert" className="text-sm text-destructive">
               {staffError}
@@ -522,14 +540,18 @@ export function ShiftBoard({
               type="button"
               variant="destructive"
               className="min-h-11 w-full"
-              disabled={pending || !removing}
+              disabled={pending || !removing || !deletePin.trim()}
               onClick={() => {
                 if (!removing) return;
+                const pin = deletePin.trim();
                 run(
-                  () => deleteStaff(removing.id),
+                  () => deleteStaff(removing.id, pin),
                   "Đã xóa nhân viên",
                   setStaffError,
-                  () => setRemoving(null),
+                  () => {
+                    setRemoving(null);
+                    setDeletePin("");
+                  },
                 );
               }}
             >
@@ -540,7 +562,10 @@ export function ShiftBoard({
               variant="outline"
               className="min-h-11 w-full"
               disabled={pending}
-              onClick={() => setRemoving(null)}
+              onClick={() => {
+                setRemoving(null);
+                setDeletePin("");
+              }}
             >
               Hủy
             </Button>

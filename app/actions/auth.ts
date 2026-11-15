@@ -34,20 +34,20 @@ export async function login(
   if (!pin) return { error: "Nhập mã PIN." };
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  // Match PIN then name in JS — maybeSingle() breaks when two accounts share a PIN.
+  const { data: rows, error } = await supabase
     .from("users")
     .select("id, name, role, pin_code")
-    .eq("pin_code", pin)
-    .maybeSingle();
+    .eq("pin_code", pin);
 
   if (error) return { error: error.message };
+  const data = (rows ?? []).find(
+    (row) =>
+      normalizeName(String(row.name)).localeCompare(name, "vi", { sensitivity: "accent" }) === 0,
+  );
   if (!data) return { error: "Sai tên hoặc mã PIN." };
 
   const storedName = normalizeName(String(data.name));
-  if (storedName.localeCompare(name, "vi", { sensitivity: "accent" }) !== 0) {
-    return { error: "Sai tên hoặc mã PIN." };
-  }
-
   const role = String(data.role);
   if (!isStaffRole(role)) {
     return {

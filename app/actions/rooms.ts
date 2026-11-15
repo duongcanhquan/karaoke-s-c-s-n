@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
+import { checkAdminPin } from "@/lib/admin-pin";
 import { roundMoney } from "@/lib/money";
 import type { ActionResult } from "@/lib/pos-types";
 
@@ -41,8 +42,10 @@ export async function createRoom(input: {
   return { ok: true };
 }
 
-export async function deleteRoom(id: string): Promise<ActionResult> {
+export async function deleteRoom(id: string, managerPin: string): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Không tìm thấy phòng." };
+  const pinOk = await checkAdminPin(managerPin);
+  if (!pinOk.ok) return pinOk;
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("rooms")

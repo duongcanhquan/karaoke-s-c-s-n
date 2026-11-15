@@ -50,15 +50,44 @@ create table if not exists public.invoices (
   room_total numeric(12, 2) not null default 0,
   service_total numeric(12, 2) not null default 0,
   grand_total numeric(12, 2) not null default 0,
+  payment_method text,
+  cash_amount numeric(12, 2) not null default 0,
+  transfer_amount numeric(12, 2) not null default 0,
   status text not null default 'ACTIVE',
   constraint invoices_room_id_fkey
     foreign key (room_id) references public.rooms (id) on delete restrict,
   constraint invoices_status_check check (status in ('ACTIVE', 'PAID')),
+  constraint invoices_payment_method_check
+    check (payment_method is null or payment_method in ('CASH', 'QR', 'SPLIT')),
   constraint invoices_room_total_check check (room_total >= 0),
   constraint invoices_service_total_check check (service_total >= 0),
   constraint invoices_grand_total_check check (grand_total >= 0),
   constraint invoices_time_order_check check (end_time is null or end_time >= start_time)
 );
+
+create index if not exists invoices_paid_end_time_idx
+  on public.invoices (end_time desc)
+  where status = 'PAID';
+
+create table if not exists public.stock_movements (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null,
+  movement_type text not null,
+  quantity_before integer not null,
+  quantity_delta integer not null,
+  quantity_after integer not null,
+  note text not null default '',
+  created_at timestamptz not null default now(),
+  constraint stock_movements_product_id_fkey
+    foreign key (product_id) references public.products (id) on delete restrict,
+  constraint stock_movements_type_check
+    check (movement_type in ('IN', 'STOCKTAKE', 'ADJUST')),
+  constraint stock_movements_before_check check (quantity_before >= 0),
+  constraint stock_movements_after_check check (quantity_after >= 0)
+);
+
+create index if not exists stock_movements_product_created_idx
+  on public.stock_movements (product_id, created_at desc);
 
 create table if not exists public.invoice_items (
   id uuid primary key default gen_random_uuid(),
@@ -167,6 +196,7 @@ alter table public.shifts disable row level security;
 alter table public.room_minibar_setup disable row level security;
 alter table public.invoice_staff_bookings disable row level security;
 alter table public.shop_settings disable row level security;
+alter table public.stock_movements disable row level security;
 
 grant select, insert, update, delete on public.users to anon, authenticated;
 grant select, insert, update, delete on public.rooms to anon, authenticated;
@@ -178,6 +208,7 @@ grant select, insert, update, delete on public.shifts to anon, authenticated;
 grant select, insert, update, delete on public.room_minibar_setup to anon, authenticated;
 grant select, insert, update, delete on public.invoice_staff_bookings to anon, authenticated;
 grant select, insert, update, delete on public.shop_settings to anon, authenticated;
+grant select, insert, update, delete on public.stock_movements to anon, authenticated;
 
 grant all on public.users to service_role;
 grant all on public.rooms to service_role;
@@ -188,4 +219,5 @@ grant all on public.expenses to service_role;
 grant all on public.shifts to service_role;
 grant all on public.room_minibar_setup to service_role;
 grant all on public.invoice_staff_bookings to service_role;
+grant all on public.stock_movements to service_role;
 grant all on public.shop_settings to service_role;

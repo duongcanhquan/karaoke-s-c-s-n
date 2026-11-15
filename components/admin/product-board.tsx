@@ -166,6 +166,7 @@ export function ProductBoard({ products }: { products: MenuProduct[] }) {
   const [formError, setFormError] = useState<string | null>(null);
   const [editing, setEditing] = useState<MenuProduct | null>(null);
   const [removing, setRemoving] = useState<MenuProduct | null>(null);
+  const [deletePin, setDeletePin] = useState("");
 
   function run(
     action: () => Promise<{ ok: true } | { ok: false; error: string }>,
@@ -341,31 +342,64 @@ export function ProductBoard({ products }: { products: MenuProduct[] }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={removing !== null} onOpenChange={(open) => !open && setRemoving(null)}>
+      <Dialog
+        open={removing !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRemoving(null);
+            setDeletePin("");
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Xóa {removing?.name}?</DialogTitle>
             <DialogDescription>
-              Món đang nằm trên hóa đơn hoặc tủ minibar phòng sẽ không xóa được.
+              Cần mã PIN quản lý. Món đang trên hóa đơn hoặc tủ minibar sẽ không xóa được.
             </DialogDescription>
           </DialogHeader>
+          <Input
+            type="password"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="PIN quản lý"
+            value={deletePin}
+            onChange={(event) => setDeletePin(event.target.value)}
+            className="min-h-12 text-center text-xl font-bold tracking-[0.3em]"
+          />
           {formError ? (
             <p role="alert" className="text-sm text-destructive">
               {formError}
             </p>
           ) : null}
           <DialogFooter>
-            <Button type="button" variant="outline" className="min-h-11" onClick={() => setRemoving(null)}>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11"
+              onClick={() => {
+                setRemoving(null);
+                setDeletePin("");
+              }}
+            >
               Hủy
             </Button>
             <Button
               type="button"
               variant="destructive"
               className="min-h-11"
-              disabled={pending || !removing}
+              disabled={pending || !removing || !deletePin.trim()}
               onClick={() => {
                 if (!removing) return;
-                run(() => deleteProduct(removing.id), "Đã xóa món", () => setRemoving(null));
+                const pin = deletePin.trim();
+                run(
+                  () => deleteProduct(removing.id, pin),
+                  "Đã xóa món",
+                  () => {
+                    setRemoving(null);
+                    setDeletePin("");
+                  },
+                );
               }}
             >
               Xóa

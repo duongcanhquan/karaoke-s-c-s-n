@@ -1,16 +1,10 @@
 import { Suspense } from "react";
-import { LoadError } from "@/components/load-error";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { labelCategory } from "@/lib/catalog";
-import { formatVnd } from "@/lib/money";
+  InventoryBoard,
+  type InventoryMovement,
+  type InventoryProduct,
+} from "@/components/admin/inventory-board";
+import { LoadError } from "@/components/load-error";
 import { createClient } from "@/utils/supabase/server";
 
 function InventoryFallback() {
@@ -21,24 +15,43 @@ function InventoryFallback() {
   );
 }
 
-async function InventoryTable() {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("products")
-    .select("id, name, category, cost_price, selling_price, stock_quantity, is_minibar_item")
-    .order("category")
-    .order("name");
+function relatedName(value: unknown, fallback: string) {
+  if (!value) return fallback;
+  if (Array.isArray(value)) {
+    const first = value[0] as { name?: string } | undefined;
+    return first?.name ?? fallback;
+  }
+  if (typeof value === "object" && value && "name" in value) {
+    return String((value as { name: unknown }).name);
+  }
+  return fallback;
+}
 
-  if (error) {
+async function InventoryContent() {
+  const supabase = await createClient();
+  const [productsResult, movementsResult] = await Promise.all([
+    supabase
+      .from("products")
+      .select("id, name, category, cost_price, selling_price, stock_quantity, is_minibar_item")
+      .order("category")
+      .order("name"),
+    supabase
+      .from("stock_movements")
+      .select("id, movement_type, quantity_before, quantity_delta, quantity_after, note, created_at, products(name)")
+      .order("created_at", { ascending: false })
+      .limit(40),
+  ]);
+
+  if (productsResult.error) {
     return (
       <LoadError
-        message={error.message}
+        message={productsResult.error.message}
         hint="Chạy supabase_schema.sql, rồi update_schema.sql, trong SQL Editor của Supabase."
       />
     );
   }
 
-  const products = (data ?? []).map((product) => ({
+  const products: InventoryProduct[] = (productsResult.data ?? []).map((product) => ({
     id: String(product.id),
     name: String(product.name),
     category: String(product.category),
@@ -48,53 +61,30 @@ async function InventoryTable() {
     minibar: Boolean(product.is_minibar_item),
   }));
 
+  let movements: InventoryMovement[] = [];
+  if (!movementsResult.error) {
+    movements = (movementsResult.data ?? []).map((move) => ({
+      id: String(move.id),
+      productName: relatedName(move.products, "Món"),
+      type: String(move.movement_type),
+      before: Number(move.quantity_before),
+      delta: Number(move.quantity_delta),
+      after: Number(move.quantity_after),
+      note: String(move.note ?? ""),
+      createdAt: String(move.created_at),
+    }));
+  }
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Tồn kho</CardTitle>
-        <CardDescription>
-          Tồn giảm theo số đã dùng khi hóa đơn đã thanh toán. Món dịch vụ không trừ kho.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {products.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Chưa có món trong kho.</p>
-        ) : (
-          <div className="w-full overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Món</TableHead>
-                <TableHead>Nhóm</TableHead>
-                <TableHead className="text-right">Giá vốn</TableHead>
-                <TableHead className="text-right">Giá bán</TableHead>
-                <TableHead>Tủ minibar</TableHead>
-                <TableHead className="text-right">Tồn</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {products.map((product) => (
-                <TableRow key={product.id}>
-                  <TableCell>{product.name}</TableCell>
-                  <TableCell>{labelCategory(product.category)}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {formatVnd(product.costPrice)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {formatVnd(product.sellingPrice)}
-                  </TableCell>
-                  <TableCell>{product.minibar ? "Có" : "Không"}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {product.stock === 0 ? "Hết · 0" : product.stock}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <div className="flex flex-col gap-4">
+      {movementsResult.error ? (
+        <LoadError
+          message={movementsResult.error.message}
+          hint="Chạy update_inventory_movements.sql trong Supabase SQL Editor để mở sổ nhập/kiểm kê."
+        />
+      ) : null}
+      <InventoryBoard products={products} movements={movements} />
+    </div>
   );
 }
 
@@ -103,10 +93,12 @@ export default function InventoryPage() {
     <section className="flex flex-col gap-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Kho hàng</h1>
-        <p className="text-sm text-muted-foreground">Danh sách món và số lượng đang còn.</p>
+        <p className="text-sm text-muted-foreground">
+          Nhập kho, kiểm kê đúng số đếm, xem tồn. Thanh toán vẫn trừ kho tự động — không đụng nhầm.
+        </p>
       </div>
       <Suspense fallback={<InventoryFallback />}>
-        <InventoryTable />
+        <InventoryContent />
       </Suspense>
     </section>
   );

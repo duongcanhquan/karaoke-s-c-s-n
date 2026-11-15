@@ -54,7 +54,7 @@ export function StockAuditDialog({
     if (!open) return;
     const next: Record<string, string> = {};
     for (const item of items) {
-      next[item.id] = String(lineNeedsAudit(item) ? item.remaining_qty : 0);
+      next[item.product_id] = String(lineNeedsAudit(item) ? item.remaining_qty : 0);
     }
     setRemaining(next);
   }, [open, items]);
@@ -66,7 +66,7 @@ export function StockAuditDialog({
     const rows = items.map((item) => {
       const available = availableQty(item.initial_qty, item.ordered_qty);
       const auditLine = lineNeedsAudit(item);
-      const raw = remaining[item.id] ?? "";
+      const raw = remaining[item.product_id] ?? "";
       const parsed = Number(raw);
       const valid =
         !auditLine ||
@@ -77,7 +77,12 @@ export function StockAuditDialog({
       if (auditLine && !valid && !error) {
         error = `Số còn lại của ${item.name} phải từ 0 đến ${available}.`;
       }
-      if (auditLine) audit.push({ itemId: item.id, remainingQty: valid ? parsed : remainingQty });
+      if (auditLine) {
+        audit.push({
+          productId: item.product_id,
+          remainingQty: valid ? parsed : remainingQty,
+        });
+      }
 
       return { item, available, auditLine, consumed, valid };
     });
@@ -96,65 +101,69 @@ export function StockAuditDialog({
         </DialogHeader>
         <ElapsedClock startTime={startTime} hourlyRate={hourlyRate} />
         {items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Không có món. Chỉ tính giờ phòng và phục vụ.</p>
+          <p className="text-sm text-muted-foreground">
+            Không có món. Chỉ tính giờ phòng và phục vụ.
+          </p>
         ) : (
           <div className="max-h-80 w-full overflow-auto">
             <div className="w-full overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Món</TableHead>
-                  <TableHead className="text-right">Có sẵn</TableHead>
-                  <TableHead className="text-right">Gọi thêm</TableHead>
-                  <TableHead className="text-right">Đồ còn lại (chưa mở)</TableHead>
-                  <TableHead className="text-right">Đã dùng</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {review.rows.map((row) => (
-                  <TableRow key={row.item.id}>
-                    <TableCell>
-                      {row.item.name}
-                      {row.auditLine ? (
-                        <span className="mt-1 block text-xs text-muted-foreground">Tủ minibar</span>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {row.item.initial_qty}
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {row.item.ordered_qty}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {row.auditLine ? (
-                        <Input
-                          aria-label={`Đồ còn lại của ${row.item.name}`}
-                          type="number"
-                          inputMode="numeric"
-                          min={0}
-                          max={row.available}
-                          step={1}
-                          value={remaining[row.item.id] ?? ""}
-                          onChange={(event) =>
-                            setRemaining((current) => ({
-                              ...current,
-                              [row.item.id]: event.target.value,
-                            }))
-                          }
-                          className="ml-auto min-h-14 w-28 text-right text-lg font-bold font-mono tabular-nums"
-                          aria-invalid={!row.valid}
-                        />
-                      ) : (
-                        <span className="font-mono tabular-nums">0</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-lg font-bold tabular-nums">
-                      {row.consumed}
-                    </TableCell>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Món</TableHead>
+                    <TableHead className="text-right">Có sẵn</TableHead>
+                    <TableHead className="text-right">Gọi thêm</TableHead>
+                    <TableHead className="text-right">Đồ còn lại (chưa mở)</TableHead>
+                    <TableHead className="text-right">Đã dùng</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {review.rows.map((row) => (
+                    <TableRow key={row.item.product_id}>
+                      <TableCell>
+                        {row.item.name}
+                        {row.auditLine ? (
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            Tủ minibar
+                          </span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {row.item.initial_qty}
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {row.item.ordered_qty}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {row.auditLine ? (
+                          <Input
+                            aria-label={`Đồ còn lại của ${row.item.name}`}
+                            type="number"
+                            inputMode="numeric"
+                            min={0}
+                            max={row.available}
+                            step={1}
+                            value={remaining[row.item.product_id] ?? ""}
+                            onChange={(event) =>
+                              setRemaining((current) => ({
+                                ...current,
+                                [row.item.product_id]: event.target.value,
+                              }))
+                            }
+                            className="ml-auto min-h-14 w-28 text-right font-mono text-lg font-bold tabular-nums"
+                            aria-invalid={!row.valid}
+                          />
+                        ) : (
+                          <span className="font-mono tabular-nums">0</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-lg font-bold tabular-nums">
+                        {row.consumed}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           </div>
         )}
@@ -175,7 +184,7 @@ export function StockAuditDialog({
             disabled={pending || Boolean(review.error)}
             onClick={() => onConfirm(review.audit)}
           >
-            {pending ? "Đang tính" : "Tính tiền & thanh toán"}
+            {pending ? "Đang tính…" : "Tính tiền & thanh toán"}
           </Button>
           <Button
             type="button"

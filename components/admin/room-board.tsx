@@ -30,6 +30,8 @@ export function RoomBoard({ rooms }: { rooms: AdminRoom[] }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<AdminRoom | null>(null);
+  const [deletePin, setDeletePin] = useState("");
 
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
@@ -120,16 +122,8 @@ export function RoomBoard({ rooms }: { rooms: AdminRoom[] }) {
                         disabled={pending || room.status !== "AVAILABLE"}
                         onClick={() => {
                           setError(null);
-                          startTransition(async () => {
-                            const result = await deleteRoom(room.id);
-                            if (!result.ok) {
-                              setError(result.error);
-                              toast.add({ title: "Không thực hiện được", description: result.error, type: "error" });
-                              return;
-                            }
-                            toast.add({ title: "Đã xóa phòng", type: "success" });
-                            router.refresh();
-                          });
+                          setDeletePin("");
+                          setRemoving(room);
                         }}
                       >
                         Xóa
@@ -143,6 +137,71 @@ export function RoomBoard({ rooms }: { rooms: AdminRoom[] }) {
           )}
         </CardContent>
       </Card>
+
+      {removing ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <p className="text-xl font-bold text-slate-950">Xóa {removing.name}?</p>
+            <p className="mt-1 text-sm text-slate-600">Cần mã PIN quản lý. Chỉ xóa được phòng đang trống.</p>
+            <Input
+              type="password"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="PIN quản lý"
+              value={deletePin}
+              onChange={(event) => setDeletePin(event.target.value)}
+              className="mt-4 min-h-12 text-center text-xl font-bold tracking-[0.3em]"
+            />
+            {error ? (
+              <p role="alert" className="mt-2 text-sm text-destructive">
+                {error}
+              </p>
+            ) : null}
+            <div className="mt-4 flex flex-col gap-2">
+              <Button
+                type="button"
+                variant="destructive"
+                className="min-h-12"
+                disabled={pending || !deletePin.trim()}
+                onClick={() => {
+                  const target = removing;
+                  startTransition(async () => {
+                    const result = await deleteRoom(target.id, deletePin.trim());
+                    if (!result.ok) {
+                      setError(result.error);
+                      toast.add({
+                        title: "Không thực hiện được",
+                        description: result.error,
+                        type: "error",
+                      });
+                      return;
+                    }
+                    setRemoving(null);
+                    setDeletePin("");
+                    toast.add({ title: "Đã xóa phòng", type: "success" });
+                    router.refresh();
+                  });
+                }}
+              >
+                Xóa phòng
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                disabled={pending}
+                onClick={() => {
+                  setRemoving(null);
+                  setDeletePin("");
+                  setError(null);
+                }}
+              >
+                Hủy
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
