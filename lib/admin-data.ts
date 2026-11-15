@@ -72,6 +72,8 @@ export async function getCachedSetupData(): Promise<{
   products: MinibarProduct[];
   setups: MinibarSetup[];
   roomsError: string | null;
+  productsError: string | null;
+  setupsError: string | null;
   minibarError: string | null;
 }> {
   "use cache";
@@ -148,11 +150,14 @@ export async function getCachedSetupData(): Promise<{
     );
 
   return {
-    rooms,
-    minibarRooms,
-    products,
-    setups,
+    rooms: roomsResult.error ? [] : rooms,
+    minibarRooms: roomsResult.error ? [] : minibarRooms,
+    products: productsResult.error ? [] : products,
+    setups: setupResult.error ? [] : setups,
     roomsError: roomsResult.error?.message ?? null,
+    productsError: productsResult.error?.message ?? null,
+    setupsError: setupResult.error?.message ?? null,
+    // Giữ alias cũ cho caller chưa tách lỗi.
     minibarError:
       productsResult.error?.message ?? setupResult.error?.message ?? null,
   };

@@ -13,31 +13,31 @@ async function SetupContent({ active }: { active: "rooms" | "minibar" }) {
     <SetupTabs
       active={active}
       roomsPanel={
-        data.roomsError ? (
-          <div className="flex flex-col gap-4">
-            <LoadError message={data.roomsError} />
-            <RoomBoard rooms={[]} />
-          </div>
-        ) : (
+        <div className="flex flex-col gap-4">
+          {data.roomsError ? <LoadError message={data.roomsError} /> : null}
           <RoomBoard rooms={data.rooms} />
-        )
+        </div>
       }
       minibarPanel={
-        data.minibarError ? (
-          <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4">
+          {data.productsError ? (
             <LoadError
-              message={data.minibarError}
-              hint="Chạy supabase_schema.sql rồi update_schema.sql trong Supabase."
+              message={data.productsError}
+              hint="Lỗi đọc món minibar — danh sách phòng bên trên không bị xóa vì lỗi này."
             />
-            <MinibarBoard rooms={[]} products={[]} setups={[]} />
-          </div>
-        ) : (
+          ) : null}
+          {data.setupsError ? (
+            <LoadError
+              message={data.setupsError}
+              hint="Chạy supabase_schema.sql rồi update_schema.sql nếu thiếu bảng room_minibar_setup."
+            />
+          ) : null}
           <MinibarBoard
             rooms={data.minibarRooms}
             products={data.products}
             setups={data.setups}
           />
-        )
+        </div>
       }
     />
   );
