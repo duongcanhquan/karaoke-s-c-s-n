@@ -19,11 +19,6 @@ export default function LoginPage() {
           <p className="font-heading text-4xl text-primary">Karaoke</p>
           <span aria-hidden="true" className="mt-3 block h-0.5 w-12 rounded-full bg-gold" />
           <h1 className="mt-4 text-2xl">Đăng nhập ca</h1>
-          <p className="mt-1 text-base text-muted-foreground">
-            Quản lý vừa làm quầy vừa vào quản trị. Thu ngân / phục vụ vào quầy. Ví dụ quản lý:{" "}
-            <span className="font-semibold text-foreground">Quanly</span> /{" "}
-            <span className="font-semibold text-foreground">1234</span>.
-          </p>
         </div>
 
         <fieldset className="flex flex-col gap-2">
@@ -48,11 +43,11 @@ export default function LoginPage() {
               Quản lý
             </Button>
           </div>
-          <p className="text-sm text-muted-foreground">
-            {destination === "pos"
-              ? "Mở phòng, gọi món, thu tiền — quản lý cũng dùng được."
-              : "Chỉ tài khoản Quản lý mới vào được màn hình quản trị."}
-          </p>
+          {destination === "admin" ? (
+            <p className="text-sm text-muted-foreground">
+              Chỉ tài khoản Quản lý mới vào được màn hình quản trị.
+            </p>
+          ) : null}
           <input type="hidden" name="destination" value={destination} />
         </fieldset>
 
