@@ -2,9 +2,17 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { clockIn, clockOut, createStaff } from "@/app/actions/hr";
+import { clockIn, clockOut, createStaff, deleteStaff, updateStaff } from "@/app/actions/hr";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -17,12 +25,13 @@ import {
 import { toast } from "@/components/ui/toast";
 import { selectClass } from "@/lib/field-class";
 import { formatVnd } from "@/lib/money";
-import { roleLabel, staffRoles } from "@/lib/session";
+import { roleLabel, staffRoles, type StaffRole } from "@/lib/session";
 
 export type StaffMember = {
   id: string;
   name: string;
   role: string;
+  pinCode: string;
 };
 
 export type ShiftRow = {
@@ -54,6 +63,77 @@ function formatWhen(value: string) {
   }).format(new Date(value));
 }
 
+function labelRole(role: string) {
+  return roleLabel[role as StaffRole] ?? role;
+}
+
+function StaffFields({
+  idPrefix,
+  member,
+}: {
+  idPrefix: string;
+  member?: StaffMember;
+}) {
+  return (
+    <>
+      <div className="flex flex-col gap-1">
+        <label htmlFor={`${idPrefix}-name`} className="text-sm font-medium">
+          Tên đăng nhập <span aria-hidden="true">*</span>
+        </label>
+        <Input
+          id={`${idPrefix}-name`}
+          name="name"
+          required
+          defaultValue={member?.name}
+          autoComplete="off"
+          className={fieldClass}
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label htmlFor={`${idPrefix}-role`} className="text-sm font-medium">
+          Vai trò <span aria-hidden="true">*</span>
+        </label>
+        <select
+          id={`${idPrefix}-role`}
+          name="role"
+          required
+          defaultValue={member?.role ?? "SERVICE_STAFF"}
+          className={selectClass}
+        >
+          {staffRoles.map((role) => (
+            <option key={role} value={role}>
+              {roleLabel[role]}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex flex-col gap-1">
+        <label htmlFor={`${idPrefix}-pin`} className="text-sm font-medium">
+          Mã PIN (4–8 số) <span aria-hidden="true">*</span>
+        </label>
+        <Input
+          id={`${idPrefix}-pin`}
+          name="pinCode"
+          required
+          inputMode="numeric"
+          pattern="\d{4,8}"
+          autoComplete="off"
+          defaultValue={member?.pinCode}
+          className={fieldClass}
+        />
+      </div>
+    </>
+  );
+}
+
+function readStaff(data: FormData) {
+  return {
+    name: String(data.get("name") ?? ""),
+    role: String(data.get("role") ?? ""),
+    pinCode: String(data.get("pinCode") ?? ""),
+  };
+}
+
 export function ShiftBoard({
   staff,
   shifts,
@@ -69,12 +149,14 @@ export function ShiftBoard({
   const [pending, startTransition] = useTransition();
   const [staffError, setStaffError] = useState<string | null>(null);
   const [shiftError, setShiftError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<StaffMember | null>(null);
+  const [removing, setRemoving] = useState<StaffMember | null>(null);
 
   function run(
     action: () => Promise<{ ok: true } | { ok: false; error: string }>,
     success: string,
     setError: (message: string | null) => void,
-    reset?: HTMLFormElement,
+    after?: () => void,
   ) {
     setError(null);
     startTransition(async () => {
@@ -84,7 +166,7 @@ export function ShiftBoard({
         toast.add({ title: "Không thực hiện được", description: result.error, type: "error" });
         return;
       }
-      reset?.reset();
+      after?.();
       toast.add({ title: success, type: "success" });
       router.refresh();
     });
@@ -92,6 +174,96 @@ export function ShiftBoard({
 
   return (
     <div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Quản lý nhân viên</CardTitle>
+          <CardDescription>
+            Mỗi người đăng nhập bằng đúng tên + mã PIN. Quản lý vào bảng điều khiển; thu ngân / phục vụ vào quầy.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid items-start gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
+          <form
+            className="flex flex-col gap-3"
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = event.currentTarget;
+              const input = readStaff(new FormData(form));
+              run(() => createStaff(input), "Đã thêm nhân viên", setStaffError, () => form.reset());
+            }}
+          >
+            <p className="text-sm font-semibold text-slate-900">Thêm nhân viên</p>
+            <StaffFields idPrefix="create" />
+            {staffError && !editing && !removing ? (
+              <p role="alert" className="text-sm text-destructive">
+                {staffError}
+              </p>
+            ) : null}
+            <Button type="submit" className="min-h-11" disabled={pending}>
+              {pending ? "Đang lưu" : "Lưu nhân viên"}
+            </Button>
+          </form>
+
+          <div className="min-w-0">
+            {staff.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Chưa có nhân viên.</p>
+            ) : (
+              <div className="w-full overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Tên</TableHead>
+                      <TableHead>Vai trò</TableHead>
+                      <TableHead>Mã PIN</TableHead>
+                      <TableHead>Thao tác</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {staff.map((member) => (
+                      <TableRow key={member.id}>
+                        <TableCell className="font-medium">{member.name}</TableCell>
+                        <TableCell>{labelRole(member.role)}</TableCell>
+                        <TableCell className="font-mono tabular-nums tracking-widest">
+                          {member.pinCode}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="min-h-11"
+                              disabled={pending}
+                              onClick={() => {
+                                setStaffError(null);
+                                setEditing(member);
+                              }}
+                            >
+                              Sửa
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              className="min-h-11"
+                              disabled={pending}
+                              onClick={() => {
+                                setStaffError(null);
+                                setRemoving(member);
+                              }}
+                            >
+                              Xóa
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Lương và hoa hồng</CardTitle>
@@ -113,173 +285,114 @@ export function ShiftBoard({
             </p>
           ) : (
             <div className="w-full overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nhân viên</TableHead>
-                  <TableHead className="text-right">Lương ca</TableHead>
-                  <TableHead className="text-right">Hoa hồng phục vụ</TableHead>
-                  <TableHead className="text-right">Tổng nhận</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {payroll.map((line) => (
-                  <TableRow key={line.userId}>
-                    <TableCell>{line.name}</TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {formatVnd(line.shiftPay)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {formatVnd(line.bookingPay)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {formatVnd(line.total)}
-                    </TableCell>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nhân viên</TableHead>
+                    <TableHead className="text-right">Lương ca</TableHead>
+                    <TableHead className="text-right">Hoa hồng phục vụ</TableHead>
+                    <TableHead className="text-right">Tổng nhận</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {payroll.map((line) => (
+                    <TableRow key={line.userId}>
+                      <TableCell>{line.name}</TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {formatVnd(line.shiftPay)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {formatVnd(line.bookingPay)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {formatVnd(line.total)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>
       </Card>
 
-      <div className="grid items-start gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Thêm nhân viên</CardTitle>
-            <CardDescription>PIN dùng để phân biệt người chấm công.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form
-              className="flex flex-col gap-3"
-              noValidate
-              onSubmit={(event) => {
-                event.preventDefault();
-                const form = event.currentTarget;
-                const data = new FormData(form);
-                run(
-                  () =>
-                    createStaff({
-                      name: String(data.get("name") ?? ""),
-                      role: String(data.get("role") ?? ""),
-                      pinCode: String(data.get("pinCode") ?? ""),
-                    }),
-                  "Đã thêm nhân viên",
-                  setStaffError,
-                  form,
-                );
-              }}
-            >
-              <div className="flex flex-col gap-1">
-                <label htmlFor="staff-name" className="text-sm font-medium">
-                  Tên <span aria-hidden="true">*</span>
-                </label>
-                <Input id="staff-name" name="name" required className={fieldClass} autoComplete="name" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label htmlFor="staff-role" className="text-sm font-medium">
-                  Vai trò <span aria-hidden="true">*</span>
-                </label>
-                <select id="staff-role" name="role" required defaultValue="SERVICE_STAFF" className={selectClass}>
-                  {staffRoles.map((role) => (
-                    <option key={role} value={role}>
-                      {roleLabel[role]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-col gap-1">
-                <label htmlFor="staff-pin" className="text-sm font-medium">
-                  PIN <span aria-hidden="true">*</span>
-                </label>
-                <Input id="staff-pin" name="pinCode" required inputMode="numeric" autoComplete="off" className={fieldClass} />
-              </div>
-              {staffError ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {staffError}
-                </p>
-              ) : null}
-              <Button type="submit" className="min-h-11" disabled={pending}>
-                {pending ? "Đang lưu" : "Lưu nhân viên"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Vào ca</CardTitle>
-            <CardDescription>Mỗi người chỉ có một ca đang mở.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form
-              className="flex flex-col gap-3"
-              noValidate
-              onSubmit={(event) => {
-                event.preventDefault();
-                const form = event.currentTarget;
-                const data = new FormData(form);
-                run(
-                  () =>
-                    clockIn({
-                      userId: String(data.get("userId") ?? ""),
-                      hourlySalary: Number(data.get("hourlySalary")),
-                    }),
-                  "Đã vào ca",
-                  setShiftError,
-                );
-              }}
-            >
-              <div className="flex flex-col gap-1">
-                <label htmlFor="shift-user" className="text-sm font-medium">
-                  Nhân viên <span aria-hidden="true">*</span>
-                </label>
-                <select
-                  id="shift-user"
-                  name="userId"
-                  required
-                  disabled={staff.length === 0}
-                  defaultValue=""
-                  className="min-h-11 w-full rounded-lg border border-input bg-transparent px-2.5 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 md:text-sm"
-                >
-                  <option value="" disabled>
-                    {staff.length === 0 ? "Chưa có nhân viên" : "Chọn nhân viên"}
+      <Card>
+        <CardHeader>
+          <CardTitle>Vào ca</CardTitle>
+          <CardDescription>Mỗi người chỉ có một ca đang mở.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="grid max-w-xl gap-3 sm:grid-cols-2"
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = event.currentTarget;
+              const data = new FormData(form);
+              run(
+                () =>
+                  clockIn({
+                    userId: String(data.get("userId") ?? ""),
+                    hourlySalary: Number(data.get("hourlySalary")),
+                  }),
+                "Đã vào ca",
+                setShiftError,
+                () => form.reset(),
+              );
+            }}
+          >
+            <div className="flex flex-col gap-1 sm:col-span-2">
+              <label htmlFor="shift-user" className="text-sm font-medium">
+                Nhân viên <span aria-hidden="true">*</span>
+              </label>
+              <select
+                id="shift-user"
+                name="userId"
+                required
+                disabled={staff.length === 0}
+                defaultValue=""
+                className="min-h-11 w-full rounded-lg border border-input bg-transparent px-2.5 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 md:text-sm"
+              >
+                <option value="" disabled>
+                  {staff.length === 0 ? "Chưa có nhân viên" : "Chọn nhân viên"}
+                </option>
+                {staff.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name} · {labelRole(member.role)}
                   </option>
-                  {staff.map((member) => (
-                    <option key={member.id} value={member.id}>
-                      {member.name} · {roleLabel[member.role as keyof typeof roleLabel] ?? member.role}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-col gap-1">
-                <label htmlFor="shift-rate" className="text-sm font-medium">
-                  Lương giờ (VND) <span aria-hidden="true">*</span>
-                </label>
-                <Input
-                  id="shift-rate"
-                  name="hourlySalary"
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="1"
-                  required
-                  className={fieldClass}
-                />
-              </div>
-              {shiftError ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {shiftError}
-                </p>
-              ) : null}
-              <Button type="submit" className="min-h-11" disabled={pending || staff.length === 0}>
-                Vào ca
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1 sm:col-span-2">
+              <label htmlFor="shift-rate" className="text-sm font-medium">
+                Lương giờ (VND) <span aria-hidden="true">*</span>
+              </label>
+              <Input
+                id="shift-rate"
+                name="hourlySalary"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="1"
+                required
+                className={fieldClass}
+              />
+            </div>
+            {shiftError ? (
+              <p role="alert" className="text-sm text-destructive sm:col-span-2">
+                {shiftError}
+              </p>
+            ) : null}
+            <Button
+              type="submit"
+              className="min-h-11 sm:col-span-2"
+              disabled={pending || staff.length === 0}
+            >
+              Vào ca
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -291,54 +404,149 @@ export function ShiftBoard({
             <p className="text-sm text-muted-foreground">Chưa có ca nào.</p>
           ) : (
             <div className="w-full overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nhân viên</TableHead>
-                  <TableHead>Vào</TableHead>
-                  <TableHead>Ra</TableHead>
-                  <TableHead className="text-right">Lương giờ</TableHead>
-                  <TableHead className="text-right">Thành tiền</TableHead>
-                  <TableHead>Trạng thái</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {shifts.map((shift) => (
-                  <TableRow key={shift.id}>
-                    <TableCell>{shift.userName}</TableCell>
-                    <TableCell>{formatWhen(shift.startTime)}</TableCell>
-                    <TableCell>{shift.endTime ? formatWhen(shift.endTime) : "—"}</TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {formatVnd(shift.hourlySalary)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {shift.totalSalary === null ? "—" : formatVnd(shift.totalSalary)}
-                    </TableCell>
-                    <TableCell>
-                      {shift.endTime ? (
-                        "Đã ra ca"
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="min-h-11"
-                          disabled={pending}
-                          onClick={() =>
-                            run(() => clockOut(shift.id), "Đã ra ca", setShiftError)
-                          }
-                        >
-                          Ra ca
-                        </Button>
-                      )}
-                    </TableCell>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nhân viên</TableHead>
+                    <TableHead>Vào</TableHead>
+                    <TableHead>Ra</TableHead>
+                    <TableHead className="text-right">Lương giờ</TableHead>
+                    <TableHead className="text-right">Thành tiền</TableHead>
+                    <TableHead>Trạng thái</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {shifts.map((shift) => (
+                    <TableRow key={shift.id}>
+                      <TableCell>{shift.userName}</TableCell>
+                      <TableCell>{formatWhen(shift.startTime)}</TableCell>
+                      <TableCell>{shift.endTime ? formatWhen(shift.endTime) : "—"}</TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {formatVnd(shift.hourlySalary)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {shift.totalSalary === null ? "—" : formatVnd(shift.totalSalary)}
+                      </TableCell>
+                      <TableCell>
+                        {shift.endTime ? (
+                          "Đã ra ca"
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="min-h-11"
+                            disabled={pending}
+                            onClick={() =>
+                              run(() => clockOut(shift.id), "Đã ra ca", setShiftError)
+                            }
+                          >
+                            Ra ca
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Sửa nhân viên</DialogTitle>
+            <DialogDescription>
+              Đổi tên hoặc mã PIN sẽ áp dụng ngay cho lần đăng nhập tiếp theo.
+            </DialogDescription>
+          </DialogHeader>
+          {editing ? (
+            <form
+              key={editing.id}
+              className="flex flex-col gap-3"
+              noValidate
+              onSubmit={(event) => {
+                event.preventDefault();
+                const input = readStaff(new FormData(event.currentTarget));
+                run(
+                  () => updateStaff({ id: editing.id, ...input }),
+                  "Đã cập nhật nhân viên",
+                  setStaffError,
+                  () => setEditing(null),
+                );
+              }}
+            >
+              <StaffFields idPrefix="edit" member={editing} />
+              {staffError ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {staffError}
+                </p>
+              ) : null}
+              <DialogFooter className="gap-2 sm:flex-col">
+                <Button type="submit" className="min-h-11 w-full" disabled={pending}>
+                  {pending ? "Đang lưu" : "Lưu thay đổi"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-11 w-full"
+                  disabled={pending}
+                  onClick={() => setEditing(null)}
+                >
+                  Hủy
+                </Button>
+              </DialogFooter>
+            </form>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={removing !== null} onOpenChange={(open) => !open && setRemoving(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Xóa nhân viên?</DialogTitle>
+            <DialogDescription>
+              {removing
+                ? `Xóa “${removing.name}” khỏi danh sách đăng nhập. Không xóa được nếu đã có ca hoặc lịch phục vụ.`
+                : null}
+            </DialogDescription>
+          </DialogHeader>
+          {staffError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {staffError}
+            </p>
+          ) : null}
+          <DialogFooter className="gap-2 sm:flex-col">
+            <Button
+              type="button"
+              variant="destructive"
+              className="min-h-11 w-full"
+              disabled={pending || !removing}
+              onClick={() => {
+                if (!removing) return;
+                run(
+                  () => deleteStaff(removing.id),
+                  "Đã xóa nhân viên",
+                  setStaffError,
+                  () => setRemoving(null),
+                );
+              }}
+            >
+              Xóa
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11 w-full"
+              disabled={pending}
+              onClick={() => setRemoving(null)}
+            >
+              Hủy
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

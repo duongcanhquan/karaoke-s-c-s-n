@@ -30,7 +30,7 @@ const links: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/admin/products", label: "Thực đơn", icon: UtensilsCrossed },
   { href: "/admin/rooms", label: "Phòng", icon: DoorOpen },
   { href: "/admin/minibar", label: "Tủ minibar", icon: Wine },
-  { href: "/admin/hr", label: "Lương & Nhân sự", icon: Users },
+  { href: "/admin/hr", label: "Nhân viên", icon: Users },
   { href: "/admin/inventory", label: "Kho hàng", icon: Package },
   { href: "/admin/expenses", label: "Chi phí", icon: Receipt },
   { href: "/admin/settings", label: "Cài đặt", icon: Settings },

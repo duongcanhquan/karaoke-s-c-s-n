@@ -28,7 +28,7 @@ function relatedName(value: unknown) {
 async function HrContent() {
   const supabase = await createClient();
   const [staffResult, shiftResult, payResult, bookingResult] = await Promise.all([
-    supabase.from("users").select("id, name, role").order("name"),
+    supabase.from("users").select("id, name, role, pin_code").order("name"),
     supabase
       .from("shifts")
       .select("id, user_id, start_time, end_time, hourly_salary, total_salary, users(name)")
@@ -60,6 +60,7 @@ async function HrContent() {
     id: String(member.id),
     name: String(member.name),
     role: String(member.role),
+    pinCode: String(member.pin_code),
   }));
 
   const shifts: ShiftRow[] = (shiftResult.data ?? []).map((shift) => ({
@@ -116,7 +117,7 @@ export default function HrPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Lương & Nhân sự</h1>
         <p className="text-sm text-muted-foreground">
-          Vào ca, ra ca, và cộng hoa hồng từ lịch phục vụ.
+          Quản lý nhân viên (tên + PIN), vào ca / ra ca, và hoa hồng phục vụ.
         </p>
       </div>
       <Suspense fallback={<HrFallback />}>

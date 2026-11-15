@@ -19,17 +19,28 @@ export default function LoginPage() {
           <span aria-hidden="true" className="mt-3 block h-0.5 w-12 rounded-full bg-gold" />
           <h1 className="mt-4 text-2xl">Đăng nhập ca</h1>
           <p className="mt-1 text-base text-muted-foreground">
-            Nhập PIN. Thu ngân và phục vụ vào quầy. Quản lý vào bảng điều khiển.
+            Nhập đúng tên và mã PIN đã đăng ký. Thu ngân / phục vụ vào quầy. Quản lý vào bảng điều khiển.
           </p>
         </div>
+        <label htmlFor="name" className="flex flex-col gap-2 text-lg font-medium">
+          Tên
+          <Input
+            id="name"
+            name="name"
+            required
+            autoComplete="username"
+            className="h-14 min-h-14 text-xl md:text-xl"
+          />
+        </label>
         <label htmlFor="pin" className="flex flex-col gap-2 text-lg font-medium">
-          PIN
+          Mã PIN
           <Input
             id="pin"
             name="pin"
             required
+            type="password"
             inputMode="numeric"
-            autoComplete="off"
+            autoComplete="current-password"
             className="h-16 min-h-16 text-2xl tracking-[0.3em] md:text-2xl"
           />
         </label>

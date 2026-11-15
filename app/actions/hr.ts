@@ -8,6 +8,27 @@ import { isStaffRole } from "@/lib/session";
 
 function refresh() {
   revalidatePath("/admin/hr");
+  revalidatePath("/pos");
+}
+
+function normalizeName(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function validateStaffInput(input: { name: string; role: string; pinCode: string }) {
+  const name = normalizeName(input.name);
+  const role = input.role.trim();
+  const pinCode = input.pinCode.trim();
+
+  if (!name) return { ok: false as const, error: "Nhập tên nhân viên." };
+  if (!isStaffRole(role)) {
+    return { ok: false as const, error: "Chọn vai trò Quản lý, Thu ngân hoặc Nhân viên phục vụ." };
+  }
+  if (!pinCode) return { ok: false as const, error: "Nhập mã PIN." };
+  if (!/^\d{4,8}$/.test(pinCode)) {
+    return { ok: false as const, error: "Mã PIN phải gồm 4–8 chữ số." };
+  }
+  return { ok: true as const, name, role, pinCode };
 }
 
 export async function createStaff(input: {
@@ -15,25 +36,111 @@ export async function createStaff(input: {
   role: string;
   pinCode: string;
 }): Promise<ActionResult> {
-  const name = input.name.trim();
-  const role = input.role.trim();
-  const pinCode = input.pinCode.trim();
-
-  if (!name) return { ok: false, error: "Nhập tên nhân viên." };
-  if (!isStaffRole(role)) {
-    return { ok: false, error: "Chọn vai trò Quản lý, Thu ngân hoặc Nhân viên phục vụ." };
-  }
-  if (!pinCode) return { ok: false, error: "Nhập mã PIN." };
+  const checked = validateStaffInput(input);
+  if (!checked.ok) return checked;
 
   const supabase = await createClient();
   const { error } = await supabase.from("users").insert({
-    name,
-    role,
-    pin_code: pinCode,
+    name: checked.name,
+    role: checked.role,
+    pin_code: checked.pinCode,
   });
 
   if (error) {
     if (error.code === "23505") return { ok: false, error: "Mã PIN đã được dùng." };
+    return { ok: false, error: error.message };
+  }
+
+  refresh();
+  return { ok: true };
+}
+
+export async function updateStaff(input: {
+  id: string;
+  name: string;
+  role: string;
+  pinCode: string;
+}): Promise<ActionResult> {
+  if (!input.id) return { ok: false, error: "Không tìm thấy nhân viên." };
+  const checked = validateStaffInput(input);
+  if (!checked.ok) return checked;
+
+  const supabase = await createClient();
+
+  if (checked.role !== "ADMIN") {
+    const { data: current, error: currentError } = await supabase
+      .from("users")
+      .select("id, role")
+      .eq("id", input.id)
+      .maybeSingle();
+    if (currentError) return { ok: false, error: currentError.message };
+    if (!current) return { ok: false, error: "Không tìm thấy nhân viên." };
+
+    if (String(current.role) === "ADMIN") {
+      const { count, error: countError } = await supabase
+        .from("users")
+        .select("id", { count: "exact", head: true })
+        .eq("role", "ADMIN");
+      if (countError) return { ok: false, error: countError.message };
+      if ((count ?? 0) <= 1) {
+        return { ok: false, error: "Phải giữ ít nhất một tài khoản Quản lý." };
+      }
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("users")
+    .update({
+      name: checked.name,
+      role: checked.role,
+      pin_code: checked.pinCode,
+    })
+    .eq("id", input.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === "23505") return { ok: false, error: "Mã PIN đã được dùng." };
+    return { ok: false, error: error.message };
+  }
+  if (!data) return { ok: false, error: "Không tìm thấy nhân viên." };
+
+  refresh();
+  return { ok: true };
+}
+
+export async function deleteStaff(userId: string): Promise<ActionResult> {
+  if (!userId) return { ok: false, error: "Không tìm thấy nhân viên." };
+
+  const supabase = await createClient();
+  const { data: current, error: currentError } = await supabase
+    .from("users")
+    .select("id, role")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (currentError) return { ok: false, error: currentError.message };
+  if (!current) return { ok: false, error: "Không tìm thấy nhân viên." };
+
+  if (String(current.role) === "ADMIN") {
+    const { count, error: countError } = await supabase
+      .from("users")
+      .select("id", { count: "exact", head: true })
+      .eq("role", "ADMIN");
+    if (countError) return { ok: false, error: countError.message };
+    if ((count ?? 0) <= 1) {
+      return { ok: false, error: "Không thể xóa quản lý cuối cùng." };
+    }
+  }
+
+  const { error } = await supabase.from("users").delete().eq("id", userId);
+  if (error) {
+    if (error.code === "23503") {
+      return {
+        ok: false,
+        error: "Nhân viên đã có ca hoặc lịch phục vụ. Không xóa được — hãy sửa thông tin thay vì xóa.",
+      };
+    }
     return { ok: false, error: error.message };
   }
 
