@@ -1,5 +1,5 @@
 import { PageSkeleton } from "@/components/page-skeleton";
 
 export default function AdminLoading() {
-  return <PageSkeleton label="Đang tải trang quản trị" />;
+  return <PageSkeleton label="Đang tải dữ liệu…" />;
 }

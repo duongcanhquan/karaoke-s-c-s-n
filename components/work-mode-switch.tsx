@@ -16,7 +16,7 @@ export function WorkModeSwitch({
 }) {
   const [pending, startTransition] = useTransition();
   const text =
-    label ?? (mode === "pos" ? "Quầy thu ngân" : "Quản trị");
+    label ?? (mode === "pos" ? "Chuyển ra quầy thu ngân" : "Quản trị");
 
   return (
     <Button

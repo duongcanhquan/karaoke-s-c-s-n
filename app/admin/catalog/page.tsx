@@ -1,20 +1,13 @@
 import { Suspense } from "react";
 import { CatalogTabs } from "@/components/admin/catalog-tabs";
 import { InventoryBoard } from "@/components/admin/inventory-board";
+import { PanelLoading } from "@/components/admin/panel-loading";
 import { ProductBoard } from "@/components/admin/product-board";
 import { LoadError } from "@/components/load-error";
 import { getCachedInventoryData, getCachedMenuProducts } from "@/lib/admin-data";
 
 const menuHint =
   "Chạy supabase_schema.sql, rồi update_schema.sql, trong SQL Editor của Supabase.";
-
-function PanelFallback() {
-  return (
-    <div className="h-48 rounded-xl bg-muted motion-safe:animate-pulse" aria-busy="true">
-      <p className="sr-only">Đang tải</p>
-    </div>
-  );
-}
 
 async function MenuPanel() {
   const { products, error } = await getCachedMenuProducts();
@@ -81,25 +74,18 @@ export default async function CatalogPage({
     <section className="flex flex-col gap-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Hàng hóa</h1>
-        <p className="text-sm text-muted-foreground">
-          Thực đơn bán ra và nhập kho / kiểm kê trên cùng một màn hình.
-        </p>
       </div>
       <CatalogTabs
         active={active}
         menuPanel={
-          active === "menu" ? (
-            <Suspense fallback={<PanelFallback />}>
-              <MenuPanel />
-            </Suspense>
-          ) : null
+          <Suspense fallback={<PanelLoading label="Đang tải thực đơn…" />}>
+            <MenuPanel />
+          </Suspense>
         }
         inventoryPanel={
-          active === "inventory" ? (
-            <Suspense fallback={<PanelFallback />}>
-              <InventoryPanel inv={params.inv} />
-            </Suspense>
-          ) : null
+          <Suspense fallback={<PanelLoading label="Đang tải kho hàng…" />}>
+            <InventoryPanel inv={params.inv} />
+          </Suspense>
         }
       />
     </section>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   savePrinterSettings,
   saveShopBank,
@@ -18,6 +18,7 @@ import { toast } from "@/components/ui/toast";
 import { vietnamBanks } from "@/lib/banks";
 import { selectClass } from "@/lib/field-class";
 import { adminFieldClass } from "@/lib/admin-ui";
+import { useOptimisticTab } from "@/lib/use-optimistic-tab";
 import {
   savePrinterPrefsLocal,
   type ReceiptShopInfo,
@@ -47,13 +48,15 @@ export function SettingsBoard({
   settings: ShopSettings;
   initialTab?: SettingsTab;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const tabFromUrl =
     searchParams.get("tab") ?? (initialTab === "shop" ? null : initialTab);
-  const current: SettingsTab =
+  const serverTab: SettingsTab =
     tabFromUrl === "bank" || tabFromUrl === "printer" ? tabFromUrl : "shop";
+  const { tab: current, select } = useOptimisticTab(serverTab, (next) =>
+    next === "shop" ? pathname : `${pathname}?tab=${next}`,
+  );
   const [pending, startTransition] = useTransition();
   const [shopError, setShopError] = useState<string | null>(null);
   const [bankError, setBankError] = useState<string | null>(null);
@@ -69,10 +72,9 @@ export function SettingsBoard({
     <Tabs
       value={current}
       onValueChange={(value) => {
-        const next =
-          value === "bank" ? "bank" : value === "printer" ? "printer" : "shop";
-        const href = next === "shop" ? pathname : `${pathname}?tab=${next}`;
-        router.replace(href, { scroll: false });
+        select(
+          value === "bank" ? "bank" : value === "printer" ? "printer" : "shop",
+        );
       }}
       className="gap-4"
     >

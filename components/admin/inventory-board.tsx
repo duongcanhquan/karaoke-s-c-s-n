@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   createInventoryUnit,
   deleteInventoryUnit,
@@ -35,6 +35,7 @@ import { toast } from "@/components/ui/toast";
 import { adminFieldClass, adminHintBoxClass } from "@/lib/admin-ui";
 import { labelCategory } from "@/lib/catalog";
 import { selectClass } from "@/lib/field-class";
+import { useOptimisticTab } from "@/lib/use-optimistic-tab";
 import {
   defaultInventoryUnits,
   labelStockKind,
@@ -104,11 +105,17 @@ export function InventoryBoard({
   units: InventoryUnit[];
   initialTab?: InventoryTab;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  // Prefer live URL so tab switches instantly; fall back to server prop on first paint.
-  const active = resolveInventoryTab(searchParams.get("inv") ?? initialTab);
+  const serverTab = resolveInventoryTab(searchParams.get("inv") ?? initialTab);
+  const { tab: active, select } = useOptimisticTab(serverTab, (next) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", "inventory");
+    if (next === "receive") params.delete("inv");
+    else params.set("inv", next);
+    const query = params.toString();
+    return query ? `${pathname}?${query}` : pathname;
+  });
   const [pending, startTransition] = useTransition();
   const [receiveError, setReceiveError] = useState<string | null>(null);
   const [stocktakeError, setStocktakeError] = useState<string | null>(null);
@@ -141,13 +148,7 @@ export function InventoryBoard({
     <Tabs
       value={active}
       onValueChange={(value) => {
-        const next = resolveInventoryTab(String(value));
-        const params = new URLSearchParams(searchParams.toString());
-        params.set("tab", "inventory");
-        if (next === "receive") params.delete("inv");
-        else params.set("inv", next);
-        const query = params.toString();
-        router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+        select(resolveInventoryTab(String(value)));
       }}
       className="gap-4"
     >

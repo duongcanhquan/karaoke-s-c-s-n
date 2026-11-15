@@ -6,7 +6,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <AppShell>
       {/* Suspense BELOW shared layout — required for instant client navigations. */}
-      <Suspense fallback={<PageSkeleton label="Đang tải trang quản trị" />}>
+      <Suspense fallback={<PageSkeleton label="Đang tải dữ liệu…" />}>
         {children}
       </Suspense>
     </AppShell>

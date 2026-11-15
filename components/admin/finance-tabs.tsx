@@ -1,9 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { AdminTabsList, AdminTabsTrigger } from "@/components/admin/admin-tabs";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { useOptimisticTab } from "@/lib/use-optimistic-tab";
 
 export type FinanceTab = "revenue" | "expenses" | "summary";
 
@@ -18,17 +19,18 @@ export function FinanceTabs({
   expensesPanel: ReactNode;
   summaryPanel: ReactNode;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
+  const { tab, select } = useOptimisticTab(active, (next) =>
+    next === "revenue" ? pathname : `${pathname}?tab=${next}`,
+  );
 
   return (
     <Tabs
-      value={active}
+      value={tab}
       onValueChange={(value) => {
         const next =
           value === "expenses" ? "expenses" : value === "summary" ? "summary" : "revenue";
-        const href = next === "revenue" ? pathname : `${pathname}?tab=${next}`;
-        router.replace(href, { scroll: false });
+        select(next);
       }}
       className="gap-4"
     >
@@ -38,13 +40,13 @@ export function FinanceTabs({
         <AdminTabsTrigger value="summary">Tổng hợp</AdminTabsTrigger>
       </AdminTabsList>
       <TabsContent value="revenue" className="mt-0">
-        {active === "revenue" ? revenuePanel : null}
+        {tab === "revenue" ? revenuePanel : null}
       </TabsContent>
       <TabsContent value="expenses" className="mt-0">
-        {active === "expenses" ? expensesPanel : null}
+        {tab === "expenses" ? expensesPanel : null}
       </TabsContent>
       <TabsContent value="summary" className="mt-0">
-        {active === "summary" ? summaryPanel : null}
+        {tab === "summary" ? summaryPanel : null}
       </TabsContent>
     </Tabs>
   );

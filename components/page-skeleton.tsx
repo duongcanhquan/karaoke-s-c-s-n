@@ -1,7 +1,13 @@
-export function PageSkeleton({ label = "Đang tải" }: { label?: string }) {
+export function PageSkeleton({ label = "Đang tải dữ liệu…" }: { label?: string }) {
   return (
     <div className="flex flex-col gap-5" aria-busy="true" aria-live="polite">
-      <p className="sr-only">{label}</p>
+      <div className="flex items-center gap-3">
+        <span
+          aria-hidden="true"
+          className="size-5 shrink-0 rounded-full border-2 border-primary border-t-transparent motion-safe:animate-spin"
+        />
+        <p className="text-base font-semibold text-foreground">{label}</p>
+      </div>
       <div className="flex flex-col gap-2">
         <div className="h-8 w-44 max-w-full rounded-lg bg-muted motion-safe:animate-pulse" />
         <div className="h-4 w-72 max-w-full rounded-lg bg-muted/80 motion-safe:animate-pulse" />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { clockIn, clockOut, createStaff, deleteStaff, updateStaff } from "@/app/actions/hr";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/table";
 import { AdminTabsList, AdminTabsTrigger } from "@/components/admin/admin-tabs";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { useOptimisticTab } from "@/lib/use-optimistic-tab";
 import { toast } from "@/components/ui/toast";
 import { selectClass } from "@/lib/field-class";
 import { formatVnd } from "@/lib/money";
@@ -225,12 +226,14 @@ export function ShiftBoard({
   active?: HrTab;
   monthLabel?: string;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const tabFromUrl = searchParams.get("tab") ?? (active === "staff" ? null : active);
-  const current: HrTab =
+  const serverTab: HrTab =
     tabFromUrl === "shifts" || tabFromUrl === "payroll" ? tabFromUrl : "staff";
+  const { tab: current, select } = useOptimisticTab(serverTab, (next) =>
+    next === "staff" ? pathname : `${pathname}?tab=${next}`,
+  );
   const [pending, startTransition] = useTransition();
   const [staffError, setStaffError] = useState<string | null>(null);
   const [shiftError, setShiftError] = useState<string | null>(null);
@@ -261,10 +264,9 @@ export function ShiftBoard({
     <Tabs
       value={current}
       onValueChange={(value) => {
-        const next =
-          value === "shifts" ? "shifts" : value === "payroll" ? "payroll" : "staff";
-        const href = next === "staff" ? pathname : `${pathname}?tab=${next}`;
-        router.replace(href, { scroll: false });
+        select(
+          value === "shifts" ? "shifts" : value === "payroll" ? "payroll" : "staff",
+        );
       }}
       className="gap-4"
     >

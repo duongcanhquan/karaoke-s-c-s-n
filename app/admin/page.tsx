@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import { WorkModeSwitch } from "@/components/work-mode-switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCachedDashboardStats } from "@/lib/admin-data";
 
@@ -58,14 +57,8 @@ async function DashboardStats() {
 export default function AdminPage() {
   return (
     <section className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Tổng quan</h1>
-          <p className="max-w-prose text-sm leading-6 text-muted-foreground">
-            Quản lý có thể làm thu ngân bất cứ lúc nào — bấm “Làm quầy thu ngân”.
-          </p>
-        </div>
-        <WorkModeSwitch mode="pos" className="min-h-12 px-5 text-base" label="Làm quầy thu ngân" />
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Tổng quan</h1>
       </div>
       <Suspense fallback={<DashboardFallback />}>
         <DashboardStats />

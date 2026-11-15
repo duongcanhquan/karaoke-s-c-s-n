@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import { AdminRevenueClient } from "@/components/admin/revenue-client";
 import { FinanceTabs, type FinanceTab } from "@/components/admin/finance-tabs";
 import { ManagerSummaryBoard } from "@/components/admin/manager-summary-board";
+import { PanelLoading } from "@/components/admin/panel-loading";
 import { ExpenseBoard, type ExpenseRow } from "@/components/expenses/expense-board";
 import { LoadError } from "@/components/load-error";
 import { createDb } from "@/utils/supabase/db";
@@ -11,12 +12,6 @@ function todayInVietnam() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Ho_Chi_Minh",
   }).format(new Date());
-}
-
-function PanelFallback() {
-  return (
-    <div className="h-48 rounded-xl bg-muted motion-safe:animate-pulse" aria-busy="true" />
-  );
 }
 
 async function ExpensesPanel() {
@@ -67,32 +62,23 @@ export default async function FinancePage({
     <section className="flex flex-col gap-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Tài chính</h1>
-        <p className="text-sm text-muted-foreground">
-          Doanh thu, chi phí và tổng hợp lương / xuất CSV — gọn trong một chỗ.
-        </p>
       </div>
       <FinanceTabs
         active={active}
         revenuePanel={
-          active === "revenue" ? (
-            <Suspense fallback={<PanelFallback />}>
-              <AdminRevenueClient />
-            </Suspense>
-          ) : null
+          <Suspense fallback={<PanelLoading label="Đang tải doanh thu…" />}>
+            <AdminRevenueClient />
+          </Suspense>
         }
         expensesPanel={
-          active === "expenses" ? (
-            <Suspense fallback={<PanelFallback />}>
-              <ExpensesPanel />
-            </Suspense>
-          ) : null
+          <Suspense fallback={<PanelLoading label="Đang tải chi phí…" />}>
+            <ExpensesPanel />
+          </Suspense>
         }
         summaryPanel={
-          active === "summary" ? (
-            <Suspense fallback={<PanelFallback />}>
-              <ManagerSummaryBoard />
-            </Suspense>
-          ) : null
+          <Suspense fallback={<PanelLoading label="Đang tải tổng hợp…" />}>
+            <ManagerSummaryBoard />
+          </Suspense>
         }
       />
     </section>

@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { connection } from "next/server";
+import { PanelLoading } from "@/components/admin/panel-loading";
 import { LoadError } from "@/components/load-error";
 import {
   ShiftBoard,
@@ -20,11 +21,7 @@ import {
 import { createDb } from "@/utils/supabase/db";
 
 function HrFallback() {
-  return (
-    <div className="h-48 rounded-xl bg-muted motion-safe:animate-pulse" aria-busy="true">
-      <p className="sr-only">Đang tải nhân sự</p>
-    </div>
-  );
+  return <PanelLoading label="Đang tải nhân sự…" />;
 }
 
 function resolveHrTab(tab: string | undefined): HrTab {

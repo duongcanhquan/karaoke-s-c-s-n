@@ -22,6 +22,7 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
+import { PageSkeleton } from "@/components/page-skeleton";
 import { cn } from "cn";
 
 const links: { href: string; label: string; icon: LucideIcon }[] = [
@@ -62,13 +63,15 @@ function NavLinks({
       {links.map((link) => {
         const current = isCurrent(pathname, link.href);
         const pending = pendingHref === link.href;
+        // Pending target looks selected immediately so the click feels instant.
+        const selected = pending || (current && !pendingHref);
         const Icon = link.icon;
         return (
           <Link
             key={link.href}
             href={link.href}
             prefetch
-            aria-current={current ? "page" : undefined}
+            aria-current={selected ? "page" : undefined}
             aria-busy={pending || undefined}
             onClick={(event) => {
               // Soft client nav via transition — keeps shell interactive while RSC streams.
@@ -87,17 +90,18 @@ function NavLinks({
             }}
             className={cn(
               "flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg px-3 text-sm font-semibold transition-colors duration-150 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none",
-              current
+              selected
                 ? "bg-primary text-primary-foreground shadow-sm"
-                : pending
-                  ? "bg-muted text-foreground"
-                  : "text-foreground/80 hover:bg-muted hover:text-foreground",
+                : "text-foreground/80 hover:bg-muted hover:text-foreground",
             )}
           >
             <Icon aria-hidden="true" className="size-4" />
             {link.label}
             {pending ? (
-              <span className="ml-auto size-2 rounded-full bg-primary motion-safe:animate-pulse" />
+              <span
+                aria-hidden="true"
+                className="ml-auto size-4 rounded-full border-2 border-primary-foreground border-t-transparent motion-safe:animate-spin"
+              />
             ) : null}
           </Link>
         );
@@ -150,15 +154,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   function handleNavigate(href: string) {
     setMenuOpen(false);
     if (href === pathname) return;
+    // Paint loading UI on the same click tick — don't wait for RSC.
     setPendingHref(href);
     startTransition(() => {
       router.push(href);
     });
   }
 
+  const navigating = Boolean(pendingHref && !isCurrent(pathname, pendingHref));
+
   return (
     <div className="flex min-h-dvh flex-col bg-background md:flex-row">
-      {pendingHref ? (
+      {navigating ? (
         <div
           aria-hidden="true"
           className="pointer-events-none fixed inset-x-0 top-0 z-50 h-1 overflow-hidden bg-muted"
@@ -175,30 +182,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onNavigate={handleNavigate}
         />
         <div className="flex flex-col gap-2 px-3 pb-2">
-          <WorkModeSwitch mode="pos" className="w-full" label="Làm quầy thu ngân" />
-          <p className="px-1 text-xs text-muted-foreground">
-            Quản lý cũng thu ngân được — chuyển sang quầy không cần đăng nhập lại.
-          </p>
+          <WorkModeSwitch mode="pos" className="w-full" label="Chuyển ra quầy thu ngân" />
         </div>
         <LogoutButton />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex min-h-14 items-center gap-3 border-b border-border bg-card px-4 md:hidden">
+        <header className="flex min-h-14 items-center gap-2 border-b border-border bg-card px-4 md:hidden">
           <Button
             type="button"
             variant="outline"
             size="icon"
-            className="min-h-11 min-w-11"
+            className="min-h-11 min-w-11 shrink-0"
             aria-label="Mở menu"
             onClick={() => setMenuOpen(true)}
           >
             <Menu aria-hidden="true" className="size-5" />
           </Button>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="font-heading text-xl leading-none text-primary">Karaoke</p>
             <p className="truncate text-xs text-muted-foreground">Quản trị</p>
           </div>
+          <WorkModeSwitch
+            mode="pos"
+            className="max-w-[11rem] shrink-0 truncate px-2.5 text-xs sm:max-w-none sm:px-3 sm:text-sm"
+            label="Chuyển ra quầy thu ngân"
+          />
         </header>
 
         <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
@@ -216,14 +225,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               onNavigate={handleNavigate}
             />
             <div className="flex flex-col gap-2 px-3 pb-2">
-              <WorkModeSwitch mode="pos" className="w-full" label="Làm quầy thu ngân" />
+              <WorkModeSwitch mode="pos" className="w-full" label="Chuyển ra quầy thu ngân" />
             </div>
             <LogoutButton />
           </SheetContent>
         </Sheet>
 
         <main className="flex-1 px-4 py-6 md:px-8 md:py-8">
-          {children}
+          {navigating ? (
+            <PageSkeleton label="Đang tải dữ liệu…" />
+          ) : (
+            children
+          )}
         </main>
       </div>
     </div>

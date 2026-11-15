@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { RoomBoard } from "@/components/admin/room-board";
 import { MinibarBoard } from "@/components/admin/minibar-board";
+import { PanelLoading } from "@/components/admin/panel-loading";
 import { SetupTabs } from "@/components/admin/setup-tabs";
 import { LoadError } from "@/components/load-error";
 import { getCachedSetupData } from "@/lib/admin-data";
@@ -54,15 +55,8 @@ export default async function SetupPage({
     <section className="flex flex-col gap-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Setup phòng</h1>
-        <p className="text-sm text-muted-foreground">
-          Quản lý phòng karaoke và đồ setup tủ minibar trên cùng một màn hình.
-        </p>
       </div>
-      <Suspense
-        fallback={
-          <div className="h-48 rounded-xl bg-muted motion-safe:animate-pulse" aria-busy="true" />
-        }
-      >
+      <Suspense fallback={<PanelLoading label="Đang tải setup phòng…" />}>
         <SetupContent active={active} />
       </Suspense>
     </section>

@@ -1,9 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { AdminTabsList, AdminTabsTrigger } from "@/components/admin/admin-tabs";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { useOptimisticTab } from "@/lib/use-optimistic-tab";
 
 export function CatalogTabs({
   active,
@@ -14,16 +15,16 @@ export function CatalogTabs({
   menuPanel: ReactNode;
   inventoryPanel: ReactNode;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
+  const { tab, select } = useOptimisticTab(active, (next) =>
+    next === "inventory" ? `${pathname}?tab=inventory` : pathname,
+  );
 
   return (
     <Tabs
-      value={active}
+      value={tab}
       onValueChange={(value) => {
-        const next = value === "inventory" ? "inventory" : "menu";
-        const href = next === "inventory" ? `${pathname}?tab=inventory` : pathname;
-        router.replace(href, { scroll: false });
+        select(value === "inventory" ? "inventory" : "menu");
       }}
       className="gap-4"
     >
@@ -32,10 +33,10 @@ export function CatalogTabs({
         <AdminTabsTrigger value="inventory">Nhập hàng / Kho</AdminTabsTrigger>
       </AdminTabsList>
       <TabsContent value="menu" className="mt-0">
-        {active === "menu" ? menuPanel : null}
+        {tab === "menu" ? menuPanel : null}
       </TabsContent>
       <TabsContent value="inventory" className="mt-0">
-        {active === "inventory" ? inventoryPanel : null}
+        {tab === "inventory" ? inventoryPanel : null}
       </TabsContent>
     </Tabs>
   );
