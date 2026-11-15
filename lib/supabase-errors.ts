@@ -16,6 +16,25 @@ export function isMissingDisplayNameError(message: string | undefined | null) {
   return isMissingColumnError(message, "display_name");
 }
 
+export function isRlsError(message: string | undefined | null) {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("row-level security") ||
+    lower.includes("row level security") ||
+    lower.includes("violates row-level")
+  );
+}
+
+/** User-facing DB error — map RLS to a clear Vietnamese fix hint. */
+export function explainDbError(message: string | undefined | null, fallback: string) {
+  const text = String(message ?? "").trim() || fallback;
+  if (isRlsError(text)) {
+    return `${text} — Chạy update_disable_rls_all.sql trong Supabase SQL Editor.`;
+  }
+  return text;
+}
+
 /** Loose row bag so display_name fallback selects type-check. */
 export type LooseRows = {
   data: Array<Record<string, unknown>> | null;

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function SetupTabs({
@@ -15,10 +15,14 @@ export function SetupTabs({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const tabFromUrl =
+    searchParams.get("tab") ?? (active === "rooms" ? null : active);
+  const current = tabFromUrl === "minibar" ? "minibar" : "rooms";
 
   return (
     <Tabs
-      value={active}
+      value={current}
       onValueChange={(value) => {
         const next = value === "minibar" ? "minibar" : "rooms";
         const href = next === "minibar" ? `${pathname}?tab=minibar` : pathname;
@@ -35,10 +39,10 @@ export function SetupTabs({
         </TabsTrigger>
       </TabsList>
       <TabsContent value="rooms" className="mt-0">
-        {active === "rooms" ? roomsPanel : null}
+        {current === "rooms" ? roomsPanel : null}
       </TabsContent>
       <TabsContent value="minibar" className="mt-0">
-        {active === "minibar" ? minibarPanel : null}
+        {current === "minibar" ? minibarPanel : null}
       </TabsContent>
     </Tabs>
   );

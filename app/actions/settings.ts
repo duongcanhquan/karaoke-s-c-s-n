@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/admin-session";
+import { explainDbError } from "@/lib/supabase-errors";
 import type { ActionResult } from "@/lib/pos-types";
 import { createDb } from "@/utils/supabase/db";
 
@@ -135,7 +136,7 @@ export async function saveShopProfile(input: {
         error: "Chưa cập nhật cột cửa hàng. Chạy update_shop_settings_full.sql trong Supabase.",
       };
     }
-    return { ok: false, error: error.message };
+    return { ok: false, error: explainDbError(error.message, "Không lưu được thông tin quán.") };
   }
   if (!data) return { ok: false, error: "Không tìm thấy cấu hình cửa hàng." };
 
@@ -173,7 +174,9 @@ export async function saveShopBank(input: {
     .select("id")
     .maybeSingle();
 
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    return { ok: false, error: explainDbError(error.message, "Không lưu được tài khoản ngân hàng.") };
+  }
   if (!data) return { ok: false, error: "Không tìm thấy cấu hình cửa hàng." };
 
   revalidatePath("/admin/settings");
@@ -215,7 +218,7 @@ export async function savePrinterSettings(input: {
         error: "Chưa cập nhật cột máy in. Chạy update_shop_settings_full.sql trong Supabase.",
       };
     }
-    return { ok: false, error: error.message };
+    return { ok: false, error: explainDbError(error.message, "Không lưu được máy in.") };
   }
   if (!data) return { ok: false, error: "Không tìm thấy cấu hình cửa hàng." };
 

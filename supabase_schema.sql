@@ -8,6 +8,7 @@
 --
 -- RLS is disabled on purpose for the first development pass.
 -- The publishable key can read/write every row, including PIN codes.
+-- If inserts fail with "row-level security policy", run update_disable_rls_all.sql.
 
 create table if not exists public.users (
   id uuid primary key default gen_random_uuid(),
@@ -216,6 +217,11 @@ alter table public.room_minibar_setup disable row level security;
 alter table public.invoice_staff_bookings disable row level security;
 alter table public.shop_settings disable row level security;
 alter table public.stock_movements disable row level security;
+-- inventory_units may be added later via update_inventory_units.sql
+do $$ begin
+  alter table public.inventory_units disable row level security;
+exception when undefined_table then null;
+end $$;
 
 grant select, insert, update, delete on public.users to anon, authenticated;
 grant select, insert, update, delete on public.rooms to anon, authenticated;
@@ -228,6 +234,11 @@ grant select, insert, update, delete on public.room_minibar_setup to anon, authe
 grant select, insert, update, delete on public.invoice_staff_bookings to anon, authenticated;
 grant select, insert, update, delete on public.shop_settings to anon, authenticated;
 grant select, insert, update, delete on public.stock_movements to anon, authenticated;
+do $$ begin
+  grant select, insert, update, delete on public.inventory_units to anon, authenticated;
+  grant all on public.inventory_units to service_role;
+exception when undefined_table then null;
+end $$;
 
 grant all on public.users to service_role;
 grant all on public.rooms to service_role;

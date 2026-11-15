@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/admin-session";
 import { roundMoney } from "@/lib/money";
+import { explainDbError } from "@/lib/supabase-errors";
 import type { ActionResult } from "@/lib/pos-types";
 import { createDb } from "@/utils/supabase/db";
 
@@ -44,7 +45,9 @@ export async function logExpense(input: {
     date,
   });
 
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    return { ok: false, error: explainDbError(error.message, "Không lưu được chi phí.") };
+  }
 
   revalidatePath("/admin/expenses");
   revalidatePath("/admin/finance");

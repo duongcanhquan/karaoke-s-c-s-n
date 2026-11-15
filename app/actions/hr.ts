@@ -5,6 +5,7 @@ import { checkAdminPin } from "@/lib/admin-pin";
 import { requireAdminSession } from "@/lib/admin-session";
 import { displayLabel } from "@/lib/display-name";
 import { roundMoney } from "@/lib/money";
+import { explainDbError } from "@/lib/supabase-errors";
 import type { ActionResult } from "@/lib/pos-types";
 import { isStaffRole } from "@/lib/session";
 import { createDb } from "@/utils/supabase/db";
@@ -101,7 +102,7 @@ export async function createStaff(input: {
         error: "Chưa cập nhật cột nhân viên. Chạy update_display_names_rates.sql trong Supabase.",
       };
     }
-    return { ok: false, error: error.message };
+    return { ok: false, error: explainDbError(error.message, "Không thêm được nhân viên.") };
   }
 
   refresh();
@@ -170,7 +171,7 @@ export async function updateStaff(input: {
         error: "Chưa cập nhật cột nhân viên. Chạy update_display_names_rates.sql trong Supabase.",
       };
     }
-    return { ok: false, error: error.message };
+    return { ok: false, error: explainDbError(error.message, "Không cập nhật được nhân viên.") };
   }
   if (!data) return { ok: false, error: "Không tìm thấy nhân viên." };
 
@@ -218,7 +219,7 @@ export async function deleteStaff(
           "Nhân viên đã có ca hoặc lịch phục vụ. Không xóa được — hãy sửa thông tin thay vì xóa.",
       };
     }
-    return { ok: false, error: error.message };
+    return { ok: false, error: explainDbError(error.message, "Không xóa được nhân viên.") };
   }
 
   refresh();
@@ -259,7 +260,9 @@ export async function clockIn(input: {
     .limit(1)
     .maybeSingle();
 
-  if (openError) return { ok: false, error: openError.message };
+  if (openError) {
+    return { ok: false, error: explainDbError(openError.message, "Không đọc được ca.") };
+  }
   if (openShift) return { ok: false, error: "Nhân viên này đang trong ca." };
 
   const { error } = await supabase.from("shifts").insert({
@@ -270,7 +273,7 @@ export async function clockIn(input: {
 
   if (error) {
     if (error.code === "23505") return { ok: false, error: "Nhân viên này đang trong ca." };
-    return { ok: false, error: error.message };
+    return { ok: false, error: explainDbError(error.message, "Không vào ca được.") };
   }
 
   refresh();
@@ -287,7 +290,9 @@ export async function clockOut(shiftId: string): Promise<ActionResult> {
     .eq("id", shiftId)
     .maybeSingle();
 
-  if (shiftError) return { ok: false, error: shiftError.message };
+  if (shiftError) {
+    return { ok: false, error: explainDbError(shiftError.message, "Không đọc được ca.") };
+  }
   if (!shift) return { ok: false, error: "Không tìm thấy ca." };
   if (shift.end_time) return { ok: false, error: "Ca này đã kết thúc." };
 
@@ -307,7 +312,9 @@ export async function clockOut(shiftId: string): Promise<ActionResult> {
     .select("id")
     .maybeSingle();
 
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    return { ok: false, error: explainDbError(error.message, "Không ra ca được.") };
+  }
   if (!closed) return { ok: false, error: "Ca này đã được chốt." };
 
   refresh();

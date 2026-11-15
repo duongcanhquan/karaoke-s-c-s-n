@@ -7,6 +7,7 @@ import { requireAdminSession } from "@/lib/admin-session";
 import { bustProductsCache } from "@/lib/cache-tags";
 import { isProductCategory, type ProductCategory } from "@/lib/catalog";
 import { roundMoney } from "@/lib/money";
+import { explainDbError } from "@/lib/supabase-errors";
 import type { ActionResult } from "@/lib/pos-types";
 
 export type ProductInput = {
@@ -101,7 +102,7 @@ export async function createProduct(input: ProductInput): Promise<ActionResult> 
         error: "Chưa cập nhật cột tên hiển thị. Chạy update_display_names_rates.sql trong Supabase.",
       };
     }
-    return { ok: false, error: error.message };
+    return { ok: false, error: explainDbError(error.message, "Không thêm được món.") };
   }
 
   refresh();
@@ -139,7 +140,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<Ac
         error: "Chưa cập nhật cột tên hiển thị. Chạy update_display_names_rates.sql trong Supabase.",
       };
     }
-    return { ok: false, error: error.message };
+    return { ok: false, error: explainDbError(error.message, "Không cập nhật được món.") };
   }
   if (!data) return { ok: false, error: "Không tìm thấy món." };
 
@@ -164,7 +165,9 @@ export async function setMinibarItem(id: string, isMinibarItem: boolean): Promis
     .select("id")
     .maybeSingle();
 
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    return { ok: false, error: explainDbError(error.message, "Không cập nhật được món.") };
+  }
   if (!data) return { ok: false, error: "Không tìm thấy món." };
 
   if (!isMinibarItem) {
@@ -193,7 +196,7 @@ export async function deleteProduct(id: string, managerPin: string): Promise<Act
           "Món đang gắn hóa đơn, minibar phòng, hoặc sổ kho. Gỡ liên kết trước (hoặc chỉ ngừng bán).",
       };
     }
-    return { ok: false, error: error.message };
+    return { ok: false, error: explainDbError(error.message, "Không xóa được món.") };
   }
 
   refresh();

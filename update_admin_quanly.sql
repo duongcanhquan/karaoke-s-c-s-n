@@ -1,6 +1,7 @@
 -- Create/fix manager Quanly + PIN 1234 and allow anon login.
 -- Run in Supabase Dashboard -> SQL Editor -> Run.
 -- App uses the publishable key; RLS on users blocks login if left enabled.
+-- For ALL tables (rooms/products/…), prefer update_disable_rls_all.sql.
 
 alter table public.users disable row level security;
 grant select, insert, update, delete on public.users to anon, authenticated;

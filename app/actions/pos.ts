@@ -11,7 +11,11 @@ import { checkAdminPin } from "@/lib/admin-pin";
 import { bustPosCache } from "@/lib/cache-tags";
 import { displayLabel, relatedDisplayName } from "@/lib/display-name";
 import { billableHours, roundMoney } from "@/lib/money";
-import { isMissingDisplayNameError, looseRows } from "@/lib/supabase-errors";
+import {
+  explainDbError,
+  isMissingDisplayNameError,
+  looseRows,
+} from "@/lib/supabase-errors";
 import type {
   ActionResult,
   AssignStaffResult,
@@ -43,7 +47,7 @@ type Supabase = ReturnType<typeof createDb>;
 
 function fail(error: { message: string } | null, fallback: string): ActionResult | null {
   if (!error) return null;
-  return { ok: false, error: error.message || fallback };
+  return { ok: false, error: explainDbError(error.message, fallback) };
 }
 
 function relatedName(value: unknown, fallback: string) {
@@ -106,7 +110,12 @@ export async function startRoom(
     .select("id")
     .maybeSingle();
 
-  if (error) return { ok: false, error: error.message || "Không mở được phòng." };
+  if (error) {
+    return {
+      ok: false,
+      error: explainDbError(error.message, "Không mở được phòng."),
+    };
+  }
   if (!room) return { ok: false, error: "Phòng không còn trống." };
 
   const { data: invoice, error: invoiceError } = await supabase

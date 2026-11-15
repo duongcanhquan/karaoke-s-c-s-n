@@ -75,9 +75,13 @@ export function RoomBoard({ rooms }: { rooms: AdminRoom[] }) {
               Giá giờ <span aria-hidden="true">*</span>
               <Input id="room-rate" name="hourlyRate" type="number" min="0" step="1" required className="min-h-11" />
             </label>
-            {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+            {error ? (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            ) : null}
             <Button type="submit" className="min-h-11" disabled={pending}>
-              {pending ? "Đang lưu" : "Lưu phòng"}
+              {pending ? "Đang lưu…" : "Lưu phòng"}
             </Button>
           </form>
         </CardContent>

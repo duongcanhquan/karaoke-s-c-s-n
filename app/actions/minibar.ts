@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createDb } from "@/utils/supabase/db";
 import { requireAdminSession } from "@/lib/admin-session";
 import { bustMinibarCache } from "@/lib/cache-tags";
+import { explainDbError } from "@/lib/supabase-errors";
 import type { ActionResult } from "@/lib/pos-types";
 
 function refresh() {
@@ -34,7 +35,9 @@ export async function saveRoomMinibar(input: {
     .eq("id", input.productId)
     .maybeSingle();
 
-  if (productError) return { ok: false, error: productError.message };
+  if (productError) {
+    return { ok: false, error: explainDbError(productError.message, "Không đọc được món.") };
+  }
   if (!product) return { ok: false, error: "Không tìm thấy món." };
   if (!product.is_minibar_item) {
     return { ok: false, error: "Chỉ gán được món đã bật tủ minibar trong Thực đơn." };
@@ -47,21 +50,27 @@ export async function saveRoomMinibar(input: {
     .eq("product_id", input.productId)
     .maybeSingle();
 
-  if (existingError) return { ok: false, error: existingError.message };
+  if (existingError) {
+    return { ok: false, error: explainDbError(existingError.message, "Không đọc được setup.") };
+  }
 
   if (existing) {
     const { error } = await supabase
       .from("room_minibar_setup")
       .update({ default_quantity: quantity })
       .eq("id", existing.id);
-    if (error) return { ok: false, error: error.message };
+    if (error) {
+      return { ok: false, error: explainDbError(error.message, "Không lưu được.") };
+    }
   } else {
     const { error } = await supabase.from("room_minibar_setup").insert({
       room_id: input.roomId,
       product_id: input.productId,
       default_quantity: quantity,
     });
-    if (error) return { ok: false, error: error.message };
+    if (error) {
+      return { ok: false, error: explainDbError(error.message, "Không lưu được.") };
+    }
   }
 
   refresh();
@@ -74,7 +83,9 @@ export async function removeRoomMinibar(id: string): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Không tìm thấy dòng minibar." };
   const supabase = createDb();
   const { error } = await supabase.from("room_minibar_setup").delete().eq("id", id);
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    return { ok: false, error: explainDbError(error.message, "Không xóa được.") };
+  }
 
   refresh();
   return { ok: true };

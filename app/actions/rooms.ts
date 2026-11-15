@@ -6,6 +6,7 @@ import { checkAdminPin } from "@/lib/admin-pin";
 import { requireAdminSession } from "@/lib/admin-session";
 import { bustRoomsCache } from "@/lib/cache-tags";
 import { roundMoney } from "@/lib/money";
+import { explainDbError } from "@/lib/supabase-errors";
 import type { ActionResult } from "@/lib/pos-types";
 
 function refresh() {
@@ -41,7 +42,7 @@ export async function createRoom(input: {
   });
   if (error) {
     if (error.code === "23505") return { ok: false, error: "Tên phòng đã có." };
-    return { ok: false, error: error.message };
+    return { ok: false, error: explainDbError(error.message, "Không lưu được phòng.") };
   }
 
   refresh();
@@ -63,7 +64,7 @@ export async function deleteRoom(id: string, managerPin: string): Promise<Action
     .select("id");
   if (error) {
     if (error.code === "23503") return { ok: false, error: "Phòng đã có hóa đơn, không xóa được." };
-    return { ok: false, error: error.message };
+    return { ok: false, error: explainDbError(error.message, "Không xóa được phòng.") };
   }
   if (!data?.length) return { ok: false, error: "Chỉ xóa được phòng đang trống." };
   refresh();

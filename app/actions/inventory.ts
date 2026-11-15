@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/admin-session";
 import { bustInventoryCache } from "@/lib/cache-tags";
 import { isStockKind, type StockKind } from "@/lib/inventory-meta";
+import { explainDbError } from "@/lib/supabase-errors";
 import type { ActionResult } from "@/lib/pos-types";
 import { createDb } from "@/utils/supabase/db";
 
@@ -60,7 +61,10 @@ export async function receiveStock(input: {
         error: "Chưa cập nhật cột đơn vị kho. Chạy update_inventory_units.sql trong Supabase.",
       };
     }
-    return { ok: false, error: productError.message };
+    return {
+      ok: false,
+      error: explainDbError(productError.message, "Không đọc được món."),
+    };
   }
   if (!product) return { ok: false, error: "Không tìm thấy món." };
   if (String(product.category) === "SERVICE") {
@@ -83,7 +87,12 @@ export async function receiveStock(input: {
     .select("id")
     .maybeSingle();
 
-  if (updateError) return { ok: false, error: updateError.message };
+  if (updateError) {
+    return {
+      ok: false,
+      error: explainDbError(updateError.message, "Không cập nhật được tồn."),
+    };
+  }
   if (!updated) {
     return { ok: false, error: "Tồn kho vừa đổi — tải lại trang rồi nhập lại." };
   }
@@ -112,7 +121,10 @@ export async function receiveStock(input: {
         error: "Chưa tạo bảng sổ kho. Chạy update_inventory_movements.sql trong Supabase.",
       };
     }
-    return { ok: false, error: moveError.message };
+    return {
+      ok: false,
+      error: explainDbError(moveError.message, "Không ghi sổ kho được."),
+    };
   }
 
   refresh();
@@ -139,7 +151,12 @@ export async function stocktakeProduct(input: {
     .eq("id", input.productId)
     .maybeSingle();
 
-  if (productError) return { ok: false, error: productError.message };
+  if (productError) {
+    return {
+      ok: false,
+      error: explainDbError(productError.message, "Không đọc được món."),
+    };
+  }
   if (!product) return { ok: false, error: "Không tìm thấy món." };
   if (String(product.category) === "SERVICE") {
     return { ok: false, error: "Món dịch vụ không kiểm kê tồn." };
@@ -158,7 +175,12 @@ export async function stocktakeProduct(input: {
     .select("id")
     .maybeSingle();
 
-  if (updateError) return { ok: false, error: updateError.message };
+  if (updateError) {
+    return {
+      ok: false,
+      error: explainDbError(updateError.message, "Không cập nhật được tồn."),
+    };
+  }
   if (!updated) {
     return { ok: false, error: "Tồn kho vừa đổi — tải lại trang rồi kiểm kê lại." };
   }
@@ -182,7 +204,10 @@ export async function stocktakeProduct(input: {
         error: "Chưa tạo bảng sổ kho. Chạy update_inventory_movements.sql trong Supabase.",
       };
     }
-    return { ok: false, error: moveError.message };
+    return {
+      ok: false,
+      error: explainDbError(moveError.message, "Không ghi sổ kho được."),
+    };
   }
 
   refresh();
@@ -234,7 +259,7 @@ export async function updateProductStockMeta(input: {
         error: "Chưa cập nhật cột đơn vị kho. Chạy update_inventory_units.sql trong Supabase.",
       };
     }
-    return { ok: false, error: error.message };
+    return { ok: false, error: explainDbError(error.message, "Không cập nhật được quy cách.") };
   }
   if (!data) return { ok: false, error: "Không tìm thấy món." };
 
@@ -262,7 +287,7 @@ export async function createInventoryUnit(name: string): Promise<ActionResult> {
         error: "Chưa có bảng đơn vị. Chạy update_inventory_units.sql trong Supabase.",
       };
     }
-    return { ok: false, error: error.message };
+    return { ok: false, error: explainDbError(error.message, "Không thêm được đơn vị.") };
   }
 
   refresh();
@@ -276,7 +301,9 @@ export async function deleteInventoryUnit(id: string): Promise<ActionResult> {
 
   const supabase = createDb();
   const { error } = await supabase.from("inventory_units").delete().eq("id", id);
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    return { ok: false, error: explainDbError(error.message, "Không xóa được đơn vị.") };
+  }
 
   refresh();
   return { ok: true };
