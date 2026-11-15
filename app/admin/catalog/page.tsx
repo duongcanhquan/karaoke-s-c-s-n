@@ -24,14 +24,6 @@ async function MenuPanel() {
 
 async function InventoryPanel({ inv }: { inv?: string }) {
   const data = await getCachedInventoryData();
-  if (data.productsError) {
-    return (
-      <LoadError
-        message={data.productsError}
-        hint="Chạy supabase_schema.sql, rồi update_inventory_units.sql trong Supabase."
-      />
-    );
-  }
   const initialTab =
     inv === "stocktake" || inv === "audit"
       ? "stocktake"
@@ -40,6 +32,12 @@ async function InventoryPanel({ inv }: { inv?: string }) {
         : "receive";
   return (
     <div className="flex flex-col gap-4">
+      {data.productsError ? (
+        <LoadError
+          message={data.productsError}
+          hint="Chạy supabase_schema.sql, rồi update_inventory_units.sql trong Supabase."
+        />
+      ) : null}
       {data.movementsError ? (
         <LoadError
           message={data.movementsError}

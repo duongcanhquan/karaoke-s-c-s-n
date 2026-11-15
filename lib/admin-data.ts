@@ -299,15 +299,16 @@ export async function getCachedDashboardStats(): Promise<{
     supabase.from("products").select("id"),
   ]);
 
-  const error = rooms.error ?? invoices.error ?? products.error;
-  if (error) {
-    return { inUse: 0, openInvoices: 0, productCount: 0, error: error.message };
-  }
+  const errors = [rooms.error?.message, invoices.error?.message, products.error?.message].filter(
+    Boolean,
+  ) as string[];
 
   return {
-    inUse: (rooms.data ?? []).filter((room) => room.status === "IN_USE").length,
-    openInvoices: invoices.data?.length ?? 0,
-    productCount: products.data?.length ?? 0,
-    error: null,
+    inUse: rooms.error
+      ? 0
+      : (rooms.data ?? []).filter((room) => room.status === "IN_USE").length,
+    openInvoices: invoices.error ? 0 : (invoices.data?.length ?? 0),
+    productCount: products.error ? 0 : (products.data?.length ?? 0),
+    error: errors[0] ?? null,
   };
 }

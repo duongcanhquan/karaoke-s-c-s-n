@@ -198,8 +198,24 @@ export async function createStaff(input: {
     require_clock_in: checked.requireClockIn,
   };
 
+  const legacyPayload = {
+    name: checked.name,
+    display_name: checked.displayName,
+    role: checked.role,
+    pin_code: pinCode,
+    customer_rate: checked.customerRate,
+    staff_payout_rate: checked.staffPayoutRate,
+    default_hourly_salary: checked.defaultHourlySalary,
+  };
+
   let inserted = await supabase.from("users").insert(payload).select("id").maybeSingle();
   let error = inserted.error;
+
+  // DB chưa có cột pay_type / monthly — vẫn thêm được NV (fallback).
+  if (error && missingPaySchemaHint(error.message)) {
+    inserted = await supabase.from("users").insert(legacyPayload).select("id").maybeSingle();
+    error = inserted.error;
+  }
 
   if (error?.code === "23505" && !checked.needsLogin) {
     pinCode = makeServicePin();
@@ -209,6 +225,14 @@ export async function createStaff(input: {
       .select("id")
       .maybeSingle();
     error = inserted.error;
+    if (error && missingPaySchemaHint(error.message)) {
+      inserted = await supabase
+        .from("users")
+        .insert({ ...legacyPayload, pin_code: pinCode })
+        .select("id")
+        .maybeSingle();
+      error = inserted.error;
+    }
   }
 
   if (error) {
@@ -233,7 +257,14 @@ export async function createStaff(input: {
   const userId = inserted.data?.id ? String(inserted.data.id) : "";
   if (userId && checked.payType === "SHIFT") {
     const rateError = await syncStaffShiftRates(userId, input.shiftRates);
-    if (rateError) return rateError;
+    // NV đã tạo — thiếu bảng rates không làm fail cả thao tác.
+    if (
+      rateError &&
+      !rateError.ok &&
+      !rateError.error.includes("update_shift_templates")
+    ) {
+      return rateError;
+    }
   }
 
   refresh();
@@ -293,23 +324,44 @@ export async function updateStaff(input: {
     if (existing?.pin_code) pinCode = String(existing.pin_code);
   }
 
-  const { data, error } = await supabase
+  const fullUpdate = {
+    name: checked.name,
+    display_name: checked.displayName,
+    role: checked.role,
+    pin_code: pinCode,
+    customer_rate: checked.customerRate,
+    staff_payout_rate: checked.staffPayoutRate,
+    default_hourly_salary: checked.defaultHourlySalary,
+    pay_type: checked.payType,
+    monthly_salary: checked.monthlySalary,
+    require_clock_in: checked.requireClockIn,
+  };
+  const legacyUpdate = {
+    name: checked.name,
+    display_name: checked.displayName,
+    role: checked.role,
+    pin_code: pinCode,
+    customer_rate: checked.customerRate,
+    staff_payout_rate: checked.staffPayoutRate,
+    default_hourly_salary: checked.defaultHourlySalary,
+  };
+
+  let updated = await supabase
     .from("users")
-    .update({
-      name: checked.name,
-      display_name: checked.displayName,
-      role: checked.role,
-      pin_code: pinCode,
-      customer_rate: checked.customerRate,
-      staff_payout_rate: checked.staffPayoutRate,
-      default_hourly_salary: checked.defaultHourlySalary,
-      pay_type: checked.payType,
-      monthly_salary: checked.monthlySalary,
-      require_clock_in: checked.requireClockIn,
-    })
+    .update(fullUpdate)
     .eq("id", input.id)
     .select("id")
     .maybeSingle();
+  let error = updated.error;
+  if (error && missingPaySchemaHint(error.message)) {
+    updated = await supabase
+      .from("users")
+      .update(legacyUpdate)
+      .eq("id", input.id)
+      .select("id")
+      .maybeSingle();
+    error = updated.error;
+  }
 
   if (error) {
     if (error.code === "23505") {
@@ -329,11 +381,17 @@ export async function updateStaff(input: {
     }
     return { ok: false, error: explainDbError(error.message, "Không cập nhật được nhân viên.") };
   }
-  if (!data) return { ok: false, error: "Không tìm thấy nhân viên." };
+  if (!updated.data) return { ok: false, error: "Không tìm thấy nhân viên." };
 
   if (checked.payType === "SHIFT") {
     const rateError = await syncStaffShiftRates(input.id, input.shiftRates);
-    if (rateError) return rateError;
+    if (
+      rateError &&
+      !rateError.ok &&
+      !rateError.error.includes("update_shift_templates")
+    ) {
+      return rateError;
+    }
   } else {
     await supabase.from("staff_shift_rates").delete().eq("user_id", input.id);
   }
@@ -518,15 +576,17 @@ export async function deleteShiftTemplate(id: string): Promise<ActionResult> {
 
 export async function clockIn(input: {
   userId: string;
-  templateId: string;
+  templateId?: string;
   amount?: number;
 }): Promise<ActionResult> {
   const gate = await requireAdminSession();
   if (!gate.ok) return gate;
   if (!input.userId) return { ok: false, error: "Chọn nhân viên." };
-  if (!input.templateId) return { ok: false, error: "Chọn mẫu ca." };
 
   const supabase = createDb();
+  const templateId = String(input.templateId ?? "").trim();
+  const manual =
+    input.amount != null && Number.isFinite(Number(input.amount)) ? Number(input.amount) : null;
 
   const { data: member, error: memberError } = await supabase
     .from("users")
@@ -534,52 +594,97 @@ export async function clockIn(input: {
     .eq("id", input.userId)
     .maybeSingle();
   if (memberError) {
-    const hint = missingPaySchemaHint(memberError.message);
-    if (hint) return { ok: false, error: hint };
-    return { ok: false, error: explainDbError(memberError.message, "Không đọc được nhân viên.") };
+    // Cột pay_type chưa có — coi như SHIFT + đọc lương giờ mặc định.
+    if (!missingPaySchemaHint(memberError.message)) {
+      return { ok: false, error: explainDbError(memberError.message, "Không đọc được nhân viên.") };
+    }
   }
-  if (!member) return { ok: false, error: "Không tìm thấy nhân viên." };
-  if (String(member.role) === "SERVICE_STAFF") {
+
+  let role = "";
+  let payType = "SHIFT";
+  let requireClockIn = false;
+  let fallbackHourly = 0;
+
+  if (member) {
+    role = String(member.role);
+    payType = String(member.pay_type ?? "SHIFT");
+    requireClockIn = Boolean(member.require_clock_in);
+    fallbackHourly = Number(member.default_hourly_salary) || 0;
+  } else {
+    const basic = await supabase
+      .from("users")
+      .select("role, default_hourly_salary")
+      .eq("id", input.userId)
+      .maybeSingle();
+    if (basic.error || !basic.data) {
+      return { ok: false, error: "Không tìm thấy nhân viên." };
+    }
+    role = String(basic.data.role);
+    fallbackHourly = Number(basic.data.default_hourly_salary) || 0;
+  }
+
+  if (role === "SERVICE_STAFF") {
     return {
       ok: false,
       error: "Nhân viên phục vụ không vào ca đăng nhập — chỉ gọi vào phòng trên quầy.",
     };
   }
 
-  const { data: template, error: templateError } = await supabase
-    .from("shift_templates")
-    .select("id, pay_mode, default_amount, is_active")
-    .eq("id", input.templateId)
-    .maybeSingle();
-  if (templateError) {
-    const hint = missingPaySchemaHint(templateError.message);
-    if (hint) return { ok: false, error: hint };
-    return { ok: false, error: explainDbError(templateError.message, "Không đọc được mẫu ca.") };
+  let resolved: { payMode: "HOURLY" | "FIXED" | "ATTENDANCE"; rate: number; templateId: string | null };
+
+  if (payType === "MONTHLY") {
+    if (!requireClockIn) {
+      return { ok: false, error: "Nhân viên lương tháng này không cần chấm công." };
+    }
+    resolved = { payMode: "ATTENDANCE", rate: 0, templateId: templateId || null };
+  } else if (templateId) {
+    const { data: template, error: templateError } = await supabase
+      .from("shift_templates")
+      .select("id, pay_mode, default_amount, is_active")
+      .eq("id", templateId)
+      .maybeSingle();
+    if (templateError) {
+      const hint = missingPaySchemaHint(templateError.message);
+      if (hint) return { ok: false, error: hint };
+      return { ok: false, error: explainDbError(templateError.message, "Không đọc được mẫu ca.") };
+    }
+    if (!template || template.is_active === false) {
+      return { ok: false, error: "Mẫu ca không còn dùng." };
+    }
+
+    const { data: override } = await supabase
+      .from("staff_shift_rates")
+      .select("amount")
+      .eq("user_id", input.userId)
+      .eq("template_id", templateId)
+      .maybeSingle();
+
+    const rateResolved = resolveClockRate({
+      payType: "SHIFT",
+      requireClockIn: false,
+      templatePayMode: String(template.pay_mode),
+      templateDefaultAmount: Number(template.default_amount),
+      staffOverrideAmount: override?.amount != null ? Number(override.amount) : null,
+      manualAmount: manual,
+      fallbackHourly,
+    });
+    if (!rateResolved.ok) return rateResolved;
+    resolved = {
+      payMode: rateResolved.payMode,
+      rate: rateResolved.rate,
+      templateId,
+    };
+  } else {
+    // Chưa có mẫu ca — vào ca theo lương giờ (tương thích cũ).
+    const rate = manual != null && manual > 0 ? roundMoney(manual) : roundMoney(fallbackHourly);
+    if (rate <= 0) {
+      return {
+        ok: false,
+        error: "Chưa có mẫu ca hoặc mức lương. Tạo mẫu ca, hoặc nhập mức lần này / lương giờ NV.",
+      };
+    }
+    resolved = { payMode: "HOURLY", rate, templateId: null };
   }
-  if (!template || template.is_active === false) {
-    return { ok: false, error: "Mẫu ca không còn dùng." };
-  }
-
-  const { data: override } = await supabase
-    .from("staff_shift_rates")
-    .select("amount")
-    .eq("user_id", input.userId)
-    .eq("template_id", input.templateId)
-    .maybeSingle();
-
-  const manual =
-    input.amount != null && Number.isFinite(Number(input.amount)) ? Number(input.amount) : null;
-
-  const resolved = resolveClockRate({
-    payType: String(member.pay_type ?? "SHIFT"),
-    requireClockIn: Boolean(member.require_clock_in),
-    templatePayMode: String(template.pay_mode),
-    templateDefaultAmount: Number(template.default_amount),
-    staffOverrideAmount: override?.amount != null ? Number(override.amount) : null,
-    manualAmount: manual,
-    fallbackHourly: Number(member.default_hourly_salary) || 0,
-  });
-  if (!resolved.ok) return resolved;
 
   const { data: openShift, error: openError } = await supabase
     .from("shifts")
@@ -594,13 +699,23 @@ export async function clockIn(input: {
   }
   if (openShift) return { ok: false, error: "Nhân viên này đang trong ca." };
 
-  const { error } = await supabase.from("shifts").insert({
+  const insertFull = {
     user_id: input.userId,
-    template_id: input.templateId,
+    template_id: resolved.templateId,
     pay_mode: resolved.payMode,
     hourly_salary: resolved.rate,
-    total_salary: null,
-  });
+    total_salary: null as null,
+  };
+  let { error } = await supabase.from("shifts").insert(insertFull);
+
+  // Cột template_id / pay_mode chưa có — insert tối thiểu.
+  if (error && missingPaySchemaHint(error.message)) {
+    ({ error } = await supabase.from("shifts").insert({
+      user_id: input.userId,
+      hourly_salary: resolved.rate,
+      total_salary: null,
+    }));
+  }
 
   if (error) {
     if (error.code === "23505") return { ok: false, error: "Nhân viên này đang trong ca." };

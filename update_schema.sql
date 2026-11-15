@@ -154,6 +154,8 @@ from ranked
 where item.id = ranked.id
   and ranked.rn = 1;
 
+-- CẢNH BÁO: xóa vĩnh viễn dòng invoice_items trùng (invoice_id, product_id).
+-- Chỉ dùng khi migrate schema cũ — không chạy lại trên DB production đã ổn định.
 delete from public.invoice_items as item
 using (
   select

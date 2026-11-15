@@ -131,14 +131,15 @@ async function fetchPosSnapshot(): Promise<PosSnapshot> {
     );
   }
 
-  const loadError =
-    roomsResult.error?.message ??
-    productsResult.error?.message ??
-    invoiceResult.error?.message ??
-    setupResult.error?.message;
-  if (loadError) throw new Error(loadError);
+  // Chỉ fail cứng khi không đọc được phòng — các phần khác soft-fail để quầy không trống hết.
+  if (roomsResult.error) {
+    throw new Error(roomsResult.error.message);
+  }
+  if (productsResult.error) productsResult = { data: [], error: null };
+  if (setupResult.error) setupResult = { data: [], error: null };
+  if (staffResult.error) staffResult = { data: [], error: null };
 
-  const invoices = invoiceResult.data ?? [];
+  const invoices = invoiceResult.error ? [] : (invoiceResult.data ?? []);
   const invoiceIds = invoices.map((invoice) => String(invoice.id));
 
   let itemsResult: { data: unknown[] | null; error: { message: string } | null } = {

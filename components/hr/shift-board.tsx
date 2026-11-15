@@ -990,14 +990,14 @@ export function ShiftBoard({
                 <select
                   id="shift-template"
                   name="templateId"
-                  required
-                  disabled={activeTemplates.length === 0}
                   value={clockTemplateId}
                   onChange={(event) => setClockTemplateId(event.target.value)}
                   className={selectClass}
                 >
-                  <option value="" disabled>
-                    {activeTemplates.length === 0 ? "Chưa có mẫu ca" : "Chọn mẫu ca"}
+                  <option value="">
+                    {activeTemplates.length === 0
+                      ? "Chưa có mẫu ca — dùng lương giờ / chấm công"
+                      : "Không chọn (lương giờ / chấm công)"}
                   </option>
                   {activeTemplates.map((template) => (
                     <option key={template.id} value={template.id}>
@@ -1030,10 +1030,16 @@ export function ShiftBoard({
                   {shiftError}
                 </p>
               ) : null}
+              {activeTemplates.length === 0 ? (
+                <p className="text-xs text-muted-foreground sm:col-span-2">
+                  Nên tạo mẫu ca ở trên. Có thể vào ca tạm bằng mức lần này / lương giờ NV hoặc chấm
+                  công lương tháng.
+                </p>
+              ) : null}
               <Button
                 type="submit"
                 className="min-h-11 sm:col-span-2"
-                disabled={pending || clockable.length === 0 || activeTemplates.length === 0}
+                disabled={pending || clockable.length === 0}
               >
                 Vào ca
               </Button>

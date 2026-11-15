@@ -156,15 +156,23 @@ async function HrContent({ active }: { active: HrTab }) {
     if (!retry.error || isMissingDisplayNameError(bookingResult.error?.message)) {
       bookingResult = looseRows(retry);
     }
-    // Soft-fail: payroll booking section empty, staff list still shows.
-    if (bookingResult.error) {
-      bookingResult = { data: [], error: null };
-    }
+  const softHints: string[] = [];
+  // Soft-fail phụ — không được nuốt danh sách nhân viên.
+  if (bookingResult.error) {
+    softHints.push(`Hoa hồng: ${bookingResult.error.message}`);
+    bookingResult = { data: [], error: null };
   }
-
-  // Soft-fail shifts/pay — không được nuốt danh sách nhân viên.
-  if (shiftResult.error) shiftResult = { data: [], error: null };
-  if (payResult.error) payResult = { data: [], error: null };
+  if (shiftResult.error) {
+    softHints.push(`Ca làm: ${shiftResult.error.message}`);
+    shiftResult = { data: [], error: null };
+  }
+  if (payResult.error) {
+    softHints.push(`Lương ca: ${payResult.error.message}`);
+    payResult = { data: [], error: null };
+  }
+  if (ratesRaw.error) {
+    softHints.push(`Mức theo ca: ${ratesRaw.error.message}`);
+  }
 
   const templatesMissing = Boolean(templatesRaw.error);
   const templates: ShiftTemplate[] = templatesMissing
@@ -303,6 +311,7 @@ async function HrContent({ active }: { active: HrTab }) {
   if (templatesMissing) {
     hints.push("Chưa có bảng mẫu ca — chạy update_shift_templates.sql trong Supabase.");
   }
+  hints.push(...softHints);
 
   return (
     <ShiftBoard
