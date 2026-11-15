@@ -25,7 +25,6 @@ import {
   consumedFromRemaining,
   lineNeedsAudit,
 } from "@/lib/billing";
-import { formatVnd, roundMoney } from "@/lib/money";
 import type { InvoiceItem, StockAuditLine } from "@/lib/pos-types";
 
 export function StockAuditDialog({
@@ -62,7 +61,6 @@ export function StockAuditDialog({
 
   const review = useMemo(() => {
     let error: string | null = null;
-    let productTotal = 0;
     const audit: StockAuditLine[] = [];
 
     const rows = items.map((item) => {
@@ -80,17 +78,11 @@ export function StockAuditDialog({
         error = `Số còn lại của ${item.name} phải từ 0 đến ${available}.`;
       }
       if (auditLine) audit.push({ itemId: item.id, remainingQty: valid ? parsed : remainingQty });
-      if (valid || !auditLine) productTotal += consumed * item.price;
 
-      return { item, available, auditLine, consumed, valid, amount: consumed * item.price };
+      return { item, available, auditLine, consumed, valid };
     });
 
-    return {
-      rows,
-      error,
-      audit,
-      productTotal: roundMoney(productTotal),
-    };
+    return { rows, error, audit };
   }, [items, remaining]);
 
   return (
@@ -116,7 +108,6 @@ export function StockAuditDialog({
                   <TableHead className="text-right">Gọi thêm</TableHead>
                   <TableHead className="text-right">Đồ còn lại (chưa mở)</TableHead>
                   <TableHead className="text-right">Đã dùng</TableHead>
-                  <TableHead className="text-right">Thành tiền</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -160,9 +151,6 @@ export function StockAuditDialog({
                     <TableCell className="text-right font-mono text-lg font-bold tabular-nums">
                       {row.consumed}
                     </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {formatVnd(row.amount)}
-                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -170,16 +158,11 @@ export function StockAuditDialog({
             </div>
           </div>
         )}
-        <dl className="grid gap-2 text-base">
-          <div className="flex justify-between gap-4">
-            <dt className="text-muted-foreground">Món đã dùng</dt>
-            <dd className="font-mono font-bold tabular-nums">{formatVnd(review.productTotal)}</dd>
-          </div>
-          <div className="flex justify-between gap-4">
-            <dt className="text-muted-foreground">Phục vụ</dt>
-            <dd className="font-mono font-bold tabular-nums">{formatVnd(staffTotal)}</dd>
-          </div>
-        </dl>
+        {staffTotal > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Có phí phục vụ — số tiền sẽ hiện ở bước thanh toán.
+          </p>
+        ) : null}
         {review.error ? (
           <p role="alert" className="text-sm text-destructive">
             {review.error}
@@ -192,7 +175,7 @@ export function StockAuditDialog({
             disabled={pending || Boolean(review.error)}
             onClick={() => onConfirm(review.audit)}
           >
-            {pending ? "Đang tính" : "Thanh toán"}
+            {pending ? "Đang tính" : "Tính tiền & thanh toán"}
           </Button>
           <Button
             type="button"

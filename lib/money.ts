@@ -27,11 +27,16 @@ export function formatElapsed(startIso: string, nowMs: number) {
     .join(":");
 }
 
+/** Karaoke rooms bill by whole hours. First hour starts immediately. */
+export function billableHours(startIso: string, nowMs: number) {
+  const { elapsedMs } = elapsedParts(startIso, nowMs);
+  return Math.max(1, Math.ceil(elapsedMs / 3_600_000));
+}
+
 export function estimatedRoomCost(
   startIso: string,
   hourlyRate: number,
   nowMs: number,
 ) {
-  const { elapsedMs } = elapsedParts(startIso, nowMs);
-  return roundMoney((elapsedMs / 3_600_000) * hourlyRate);
+  return roundMoney(billableHours(startIso, nowMs) * hourlyRate);
 }

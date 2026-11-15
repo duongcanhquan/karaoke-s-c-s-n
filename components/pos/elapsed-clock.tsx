@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { estimatedRoomCost, formatElapsed, formatVnd } from "@/lib/money";
+import { billableHours, formatElapsed } from "@/lib/money";
 
 export function ElapsedClock({
   startTime,
-  hourlyRate,
 }: {
   startTime: string;
-  hourlyRate: number;
+  /** @deprecated Money is calculated only at checkout. Kept for call-site compat. */
+  hourlyRate?: number;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -29,12 +29,12 @@ export function ElapsedClock({
   }, [reducedMotion]);
 
   const elapsed = formatElapsed(startTime, now);
-  const estimate = estimatedRoomCost(startTime, hourlyRate, now);
+  const hours = billableHours(startTime, now);
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <div>
-        <p className="text-xs text-muted-foreground">Thời gian</p>
+        <p className="text-xs text-muted-foreground">Thời gian hát</p>
         <p className="font-mono text-2xl font-semibold tabular-nums tracking-tight">
           {elapsed}
         </p>
@@ -50,12 +50,12 @@ export function ElapsedClock({
         ) : null}
       </div>
       <div>
-        <p className="text-xs text-muted-foreground">Tiền phòng tạm tính</p>
+        <p className="text-xs text-muted-foreground">Giờ tính tiền</p>
         <p className="font-mono text-2xl font-semibold tabular-nums tracking-tight">
-          {formatVnd(estimate)}
+          {hours} giờ
         </p>
         <p className="text-xs text-muted-foreground">
-          Chỉ ghi vào hóa đơn khi thanh toán.
+          Tính tròn giờ · giờ đầu tính ngay khi mở phòng. Tiền chỉ hiện khi thanh toán.
         </p>
       </div>
     </div>

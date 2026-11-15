@@ -11,6 +11,7 @@ import {
   prepareCheckout,
   startRoom,
 } from "@/app/actions/pos";
+import { ManagerPinDialog } from "@/components/pos/manager-pin-dialog";
 import { PaymentDialog } from "@/components/pos/payment-dialog";
 import { StockAuditDialog } from "@/components/pos/stock-audit-dialog";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { labelCategory, productCategories, type ProductCategory } from "@/lib/catalog";
-import { estimatedRoomCost, formatElapsed, formatVnd } from "@/lib/money";
+import { billableHours, formatElapsed, formatVnd } from "@/lib/money";
 import type {
   ActionResult,
   InvoiceItem,
@@ -82,21 +83,11 @@ function Clock() {
   return (
     <time
       dateTime={new Date(now).toISOString()}
-      className="font-mono text-lg font-bold tabular-nums text-slate-950 md:text-2xl"
+      className="font-mono text-xl font-bold tabular-nums text-slate-950 md:text-3xl"
     >
       {label}
     </time>
   );
-}
-
-function billItemsTotal(items: InvoiceItem[]) {
-  return items.reduce((sum, item) => {
-    const qty =
-      item.is_minibar_item || item.initial_qty > 0
-        ? item.initial_qty + item.ordered_qty - item.remaining_qty
-        : item.ordered_qty;
-    return sum + Math.max(0, qty) * item.price;
-  }, 0);
 }
 
 export function PosKiosk({
@@ -121,12 +112,20 @@ export function PosKiosk({
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [payment, setPayment] = useState<PaymentCheckout | null>(null);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pendingReduce, setPendingReduce] = useState<{
+    invoiceId: string;
+    productId: string;
+  } | null>(null);
 
   const room = rooms.find((item) => item.id === openRoomId) ?? null;
   const bill = room ? bills[room.id] ?? null : null;
   const visibleProducts = products.filter(
     (product) => category === "ALL" || product.category === category,
   );
+  const orderedCount = bill
+    ? bill.items.reduce((sum, item) => sum + Math.max(0, item.ordered_qty), 0)
+    : 0;
 
   function run(action: () => Promise<ActionResult>, success: string, after?: () => void) {
     startTransition(async () => {
@@ -137,16 +136,15 @@ export function PosKiosk({
     });
   }
 
-  const sheetRoomCost =
-    room && bill ? estimatedRoomCost(bill.startTime, room.hourly_rate, now) : 0;
-  const sheetItemsCost = bill ? billItemsTotal(bill.items) : 0;
-  const sheetStaffCost = bill?.staffTotal ?? 0;
-  const sheetGrand = sheetRoomCost + sheetItemsCost + sheetStaffCost;
+  function requestReduce(invoiceId: string, productId: string) {
+    setPendingReduce({ invoiceId, productId });
+    setPinOpen(true);
+  }
 
   return (
     <div className="flex h-dvh w-screen flex-col overflow-hidden bg-slate-100">
-      <header className="flex min-h-14 items-center justify-between gap-2 bg-white px-3 md:min-h-16 md:gap-4 md:px-6">
-        <p className="min-w-0 truncate text-base font-bold text-slate-950 md:text-lg">
+      <header className="flex min-h-16 items-center justify-between gap-3 bg-white px-4 md:min-h-20 md:px-8">
+        <p className="min-w-0 truncate text-lg font-bold text-slate-950 md:text-2xl">
           {cashierName}
         </p>
         <Clock />
@@ -154,7 +152,7 @@ export function PosKiosk({
           <Button
             type="submit"
             variant="ghost"
-            className="min-h-12 px-3 text-base font-bold text-slate-950 md:min-h-14 md:px-4 md:text-lg"
+            className="min-h-14 px-3 text-base font-bold text-slate-950 md:min-h-16 md:px-5 md:text-xl"
           >
             <LogOut aria-hidden="true" />
             <span className="hidden sm:inline">Đăng xuất</span>
@@ -162,13 +160,13 @@ export function PosKiosk({
         </form>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto p-3 md:p-5">
+      <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-8">
         {rooms.length === 0 ? (
-          <p className="text-xl text-slate-500">Chưa có phòng.</p>
+          <p className="text-2xl text-slate-500">Chưa có phòng.</p>
         ) : (
           <section
-            aria-label="Danh sách phòng"
-            className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
+            aria-label="Bảng trạng thái phòng"
+            className="grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
           >
             {rooms.map((item) => {
               const active = bills[item.id];
@@ -186,23 +184,23 @@ export function PosKiosk({
                         setOpenRoomId(item.id);
                       }
                     }}
-                    className="flex min-h-40 cursor-pointer flex-col justify-between rounded-2xl bg-green-500 p-3 text-white shadow-sm focus-visible:ring-3 focus-visible:ring-slate-950 focus-visible:outline-none md:min-h-48 md:p-4"
+                    className="flex min-h-52 cursor-pointer flex-col justify-between rounded-3xl bg-emerald-500 p-5 text-white shadow-sm focus-visible:ring-4 focus-visible:ring-slate-950 focus-visible:outline-none md:min-h-64 md:p-7"
                   >
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide opacity-90">
+                      <p className="text-sm font-semibold uppercase tracking-wide opacity-90 md:text-base">
                         Phòng trống
                       </p>
-                      <p className="mt-1 text-xl font-bold tracking-tight md:text-2xl">
+                      <p className="mt-3 text-3xl font-bold tracking-tight md:text-4xl">
                         {item.name}
                       </p>
-                      <p className="mt-1 font-mono text-sm font-bold tabular-nums md:text-base">
-                        {formatVnd(item.hourly_rate)}/giờ
+                      <p className="mt-3 text-base opacity-90 md:text-lg">
+                        {item.type} · {formatVnd(item.hourly_rate)}/giờ
                       </p>
                     </div>
                     <Button
                       type="button"
                       disabled={pending}
-                      className="mt-3 h-12 w-full bg-white text-base font-bold text-green-700 hover:bg-green-50 md:h-14 md:text-lg"
+                      className="mt-6 h-14 w-full bg-white text-lg font-bold text-emerald-700 hover:bg-emerald-50 md:h-16 md:text-xl"
                       onClick={(event) => {
                         event.stopPropagation();
                         run(() => startRoom(item.id), `Đã mở ${item.name}`);
@@ -215,37 +213,30 @@ export function PosKiosk({
               }
 
               if (item.status === "IN_USE" && active) {
-                const tienHat = estimatedRoomCost(active.startTime, item.hourly_rate, now);
+                const hours = billableHours(active.startTime, now);
                 return (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => setOpenRoomId(item.id)}
-                    className="flex min-h-40 cursor-pointer flex-col gap-1 rounded-2xl bg-red-600 p-3 text-left text-white shadow-sm focus-visible:ring-3 focus-visible:ring-slate-950 focus-visible:outline-none md:min-h-48 md:gap-1.5 md:p-4"
+                    className="flex min-h-52 cursor-pointer flex-col gap-2 rounded-3xl bg-rose-600 p-5 text-left text-white shadow-sm focus-visible:ring-4 focus-visible:ring-slate-950 focus-visible:outline-none md:min-h-64 md:gap-3 md:p-7"
                   >
-                    <p className="text-xs font-semibold uppercase tracking-wide opacity-90">
+                    <p className="text-sm font-semibold uppercase tracking-wide opacity-90 md:text-base">
                       Đang hát
                     </p>
-                    <p className="text-xl font-bold tracking-tight md:text-2xl">{item.name}</p>
-                    <p className="text-sm md:text-base">
-                      Bắt đầu:{" "}
+                    <p className="text-3xl font-bold tracking-tight md:text-4xl">{item.name}</p>
+                    <p className="text-base md:text-lg">
+                      Bắt đầu{" "}
                       <span className="font-mono font-bold tabular-nums">
                         {formatStartClock(active.startTime)}
                       </span>
                     </p>
-                    <p className="text-sm md:text-base">
-                      Giờ hát:{" "}
-                      <span className="font-mono text-xl font-bold tabular-nums md:text-3xl">
-                        {formatElapsed(active.startTime, now)}
-                      </span>
+                    <p className="mt-auto font-mono text-4xl font-bold tabular-nums md:text-5xl">
+                      {formatElapsed(active.startTime, now)}
                     </p>
-                    <p className="mt-auto text-sm md:text-base">
-                      Tổng tiền:{" "}
-                      <span className="font-mono text-xl font-bold tabular-nums md:text-3xl">
-                        {formatVnd(tienHat)}
-                      </span>
+                    <p className="text-base font-semibold md:text-lg">
+                      Giờ tính: {hours} giờ · {formatVnd(item.hourly_rate)}/giờ
                     </p>
-                    <p className="text-xs opacity-80">Tiền hát · {formatVnd(item.hourly_rate)}/giờ</p>
                   </button>
                 );
               }
@@ -255,10 +246,10 @@ export function PosKiosk({
                   key={item.id}
                   type="button"
                   onClick={() => setOpenRoomId(item.id)}
-                  className="flex min-h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl bg-amber-400 p-3 text-center text-amber-950 focus-visible:ring-3 focus-visible:ring-slate-950 focus-visible:outline-none md:min-h-48 md:p-4"
+                  className="flex min-h-52 cursor-pointer flex-col items-center justify-center gap-3 rounded-3xl bg-amber-400 p-5 text-center text-amber-950 focus-visible:ring-4 focus-visible:ring-slate-950 focus-visible:outline-none md:min-h-64 md:p-7"
                 >
-                  <p className="text-xl font-bold md:text-2xl">{item.name}</p>
-                  <p className="text-base font-bold md:text-xl">Đang dọn</p>
+                  <p className="text-3xl font-bold md:text-4xl">{item.name}</p>
+                  <p className="text-xl font-bold md:text-2xl">Đang dọn</p>
                 </button>
               );
             })}
@@ -287,7 +278,7 @@ export function PosKiosk({
                   <p className="text-lg text-slate-600">Phòng trống</p>
                   <Button
                     type="button"
-                    className="h-16 w-full max-w-sm bg-green-600 text-2xl font-bold hover:bg-green-700"
+                    className="h-16 w-full max-w-sm bg-emerald-600 text-2xl font-bold hover:bg-emerald-700"
                     disabled={pending}
                     onClick={() => run(() => startRoom(room.id), `Đã mở ${room.name}`)}
                   >
@@ -328,60 +319,41 @@ export function PosKiosk({
                   </TabsList>
 
                   <TabsContent value="bill" className="min-h-0 overflow-y-auto p-4">
-                    <div className="mb-4 rounded-xl bg-slate-950 p-4 text-white">
-                      <p className="text-sm opacity-80">
+                    <div className="mb-4 rounded-2xl bg-rose-600 p-5 text-white">
+                      <p className="text-sm opacity-90">
                         Bắt đầu lúc {formatStartClock(bill.startTime)}
                       </p>
-                      <p className="mt-1 font-mono text-2xl font-bold tabular-nums">
-                        Giờ hát {formatElapsed(bill.startTime, now)}
+                      <p className="mt-2 font-mono text-4xl font-bold tabular-nums">
+                        {formatElapsed(bill.startTime, now)}
                       </p>
-                      <p className="mt-2 text-sm opacity-80">Tiền hát</p>
-                      <p className="font-mono text-2xl font-bold tabular-nums">
-                        {formatVnd(sheetRoomCost)}
+                      <p className="mt-3 text-lg font-semibold">
+                        Giờ tính: {billableHours(bill.startTime, now)} giờ
+                      </p>
+                      <p className="mt-1 text-sm opacity-90">
+                        Tiền chỉ tính khi bấm Thanh toán
                       </p>
                     </div>
+
+                    <p className="mb-3 text-base text-slate-600">
+                      Đã gọi thêm:{" "}
+                      <span className="font-mono font-bold text-slate-950">{orderedCount}</span> món
+                    </p>
 
                     <BillList
                       items={bill.items}
                       pending={pending}
-                      onAdjust={(productId, delta) =>
+                      onAdd={(productId) =>
                         run(
-                          () => adjustInvoiceItem(bill.id, productId, delta),
-                          delta > 0 ? "Đã thêm 1" : "Đã bớt 1",
+                          () => adjustInvoiceItem(bill.id, productId, 1),
+                          "Đã thêm 1",
                         )
                       }
+                      onReduce={(productId) => requestReduce(bill.id, productId)}
                     />
-
-                    <div className="mt-6 space-y-2 border-t border-slate-200 pt-4">
-                      <div className="flex justify-between text-base text-slate-600">
-                        <span>Tiền hát</span>
-                        <span className="font-mono font-bold tabular-nums text-slate-950">
-                          {formatVnd(sheetRoomCost)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-base text-slate-600">
-                        <span>Đồ đã gọi</span>
-                        <span className="font-mono font-bold tabular-nums text-slate-950">
-                          {formatVnd(sheetItemsCost)}
-                        </span>
-                      </div>
-                      {sheetStaffCost > 0 ? (
-                        <div className="flex justify-between text-base text-slate-600">
-                          <span>Phục vụ</span>
-                          <span className="font-mono font-bold tabular-nums text-slate-950">
-                            {formatVnd(sheetStaffCost)}
-                          </span>
-                        </div>
-                      ) : null}
-                      <div className="flex justify-between text-2xl font-bold text-slate-950">
-                        <span>Tổng tiền</span>
-                        <span className="font-mono tabular-nums">{formatVnd(sheetGrand)}</span>
-                      </div>
-                    </div>
 
                     <Button
                       type="button"
-                      className="mt-4 h-16 w-full bg-red-600 text-2xl font-bold hover:bg-red-700"
+                      className="mt-6 h-16 w-full bg-rose-600 text-2xl font-bold hover:bg-rose-700"
                       disabled={pending}
                       onClick={() => setCheckoutOpen(true)}
                     >
@@ -396,7 +368,7 @@ export function PosKiosk({
                       startTime={bill.startTime}
                       hourlyRate={room.hourly_rate}
                       items={bill.items}
-                      staffTotal={sheetStaffCost}
+                      staffTotal={bill.staffTotal}
                       onConfirm={(audit: StockAuditLine[]) => {
                         startTransition(async () => {
                           const result = await prepareCheckout(bill.id, audit);
@@ -408,15 +380,13 @@ export function PosKiosk({
                             });
                             return;
                           }
+                          const {
+                            ok: _ok,
+                            ...checkout
+                          } = result;
+                          void _ok;
                           setCheckoutOpen(false);
-                          setPayment({
-                            invoiceId: result.invoiceId,
-                            roomName: result.roomName,
-                            grandTotal: result.grandTotal,
-                            bankBin: result.bankBin,
-                            bankAccountNumber: result.bankAccountNumber,
-                            bankAccountName: result.bankAccountName,
-                          });
+                          setPayment(checkout);
                           setPaymentOpen(true);
                           router.refresh();
                         });
@@ -427,6 +397,7 @@ export function PosKiosk({
                       onOpenChange={setPaymentOpen}
                       pending={pending}
                       payment={payment}
+                      cashierName={cashierName}
                       onConfirmPaid={() => {
                         if (!payment) return;
                         run(
@@ -436,6 +407,32 @@ export function PosKiosk({
                             setPaymentOpen(false);
                             setPayment(null);
                             setOpenRoomId(null);
+                          },
+                        );
+                      }}
+                    />
+                    <ManagerPinDialog
+                      open={pinOpen}
+                      onOpenChange={(open) => {
+                        setPinOpen(open);
+                        if (!open) setPendingReduce(null);
+                      }}
+                      pending={pending}
+                      onConfirm={(pin) => {
+                        if (!pendingReduce) return;
+                        const target = pendingReduce;
+                        run(
+                          () =>
+                            adjustInvoiceItem(
+                              target.invoiceId,
+                              target.productId,
+                              -1,
+                              pin,
+                            ),
+                          "Đã bớt 1",
+                          () => {
+                            setPinOpen(false);
+                            setPendingReduce(null);
                           },
                         );
                       }}
@@ -511,11 +508,13 @@ export function PosKiosk({
 function BillList({
   items,
   pending,
-  onAdjust,
+  onAdd,
+  onReduce,
 }: {
   items: InvoiceItem[];
   pending: boolean;
-  onAdjust: (productId: string, delta: number) => void;
+  onAdd: (productId: string) => void;
+  onReduce: (productId: string) => void;
 }) {
   const lines = useMemo(
     () =>
@@ -551,9 +550,9 @@ function BillList({
             </div>
             <button
               type="button"
-              aria-label={`Bớt ${item.name}`}
+              aria-label={`Bớt ${item.name} (cần PIN quản lý)`}
               disabled={pending || item.ordered_qty <= 0}
-              onClick={() => onAdjust(item.product_id, -1)}
+              onClick={() => onReduce(item.product_id)}
               className="inline-flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-full border-2 border-slate-900 text-slate-950 disabled:opacity-30"
             >
               <Minus aria-hidden="true" className="size-6" strokeWidth={3} />
@@ -565,7 +564,7 @@ function BillList({
               type="button"
               aria-label={`Thêm ${item.name}`}
               disabled={pending}
-              onClick={() => onAdjust(item.product_id, 1)}
+              onClick={() => onAdd(item.product_id)}
               className="inline-flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-full bg-slate-900 text-white disabled:opacity-30"
             >
               <Plus aria-hidden="true" className="size-6" strokeWidth={3} />

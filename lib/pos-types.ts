@@ -60,10 +60,27 @@ export type StockAuditLine = {
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
+export type PaymentMethod = "CASH" | "QR" | "SPLIT";
+
+export type ReceiptLine = {
+  name: string;
+  qty: number;
+  price: number;
+  amount: number;
+};
+
 export type PaymentCheckout = {
   invoiceId: string;
   roomName: string;
+  roomType: string;
+  startTime: string;
+  hourlyRate: number;
+  billableHours: number;
+  roomTotal: number;
+  itemsTotal: number;
+  staffTotal: number;
   grandTotal: number;
+  lines: ReceiptLine[];
   bankBin: string;
   bankAccountNumber: string;
   bankAccountName: string;

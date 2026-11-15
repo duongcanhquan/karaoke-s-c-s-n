@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
+import { printReceipt } from "@/components/pos/receipt-print";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -9,8 +11,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { formatVnd } from "@/lib/money";
-import type { PaymentCheckout } from "@/lib/pos-types";
+import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/toast";
+import { formatVnd, roundMoney } from "@/lib/money";
+import type { PaymentCheckout, PaymentMethod } from "@/lib/pos-types";
 import { vietQrImageUrl } from "@/lib/vietqr";
 
 export function PaymentDialog({
@@ -18,72 +22,194 @@ export function PaymentDialog({
   onOpenChange,
   pending,
   payment,
+  cashierName,
   onConfirmPaid,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pending: boolean;
   payment: PaymentCheckout | null;
+  cashierName: string;
   onConfirmPaid: () => void;
 }) {
-  if (!payment) return null;
+  const [method, setMethod] = useState<PaymentMethod>("QR");
+  const [cashInput, setCashInput] = useState("");
 
-  const qrSrc = vietQrImageUrl(payment);
+  useEffect(() => {
+    if (!open || !payment) return;
+    setMethod("QR");
+    setCashInput(String(Math.round(payment.grandTotal / 2)));
+  }, [open, payment]);
+
+  const amounts = useMemo(() => {
+    if (!payment) return { cash: 0, transfer: 0 };
+    if (method === "CASH") return { cash: payment.grandTotal, transfer: 0 };
+    if (method === "QR") return { cash: 0, transfer: payment.grandTotal };
+    const cash = roundMoney(Number(cashInput) || 0);
+    const transfer = roundMoney(Math.max(0, payment.grandTotal - cash));
+    return { cash, transfer };
+  }, [payment, method, cashInput]);
+
+  if (!payment) return null;
+  const checkout = payment;
+
+  const bankReady = Boolean(
+    checkout.bankBin && checkout.bankAccountNumber && checkout.bankAccountName,
+  );
+  const needsQr = amounts.transfer > 0;
+  const qrOk = !needsQr || bankReady;
+  const splitValid =
+    method !== "SPLIT" ||
+    (amounts.cash > 0 &&
+      amounts.transfer > 0 &&
+      roundMoney(amounts.cash + amounts.transfer) === roundMoney(checkout.grandTotal));
+
+  function handlePrint() {
+    try {
+      printReceipt({
+        payment: checkout,
+        method,
+        cashAmount: amounts.cash,
+        transferAmount: amounts.transfer,
+        cashierName,
+      });
+      toast.add({ title: "Đã gửi lệnh in hóa đơn", type: "success" });
+    } catch (error) {
+      toast.add({
+        title: "Không in được",
+        description: error instanceof Error ? error.message : "Lỗi in",
+        type: "error",
+      });
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-bold">Thanh toán {payment.roomName}</DialogTitle>
+          <DialogTitle className="text-2xl font-bold">Thanh toán {checkout.roomName}</DialogTitle>
           <DialogDescription>
-            Quét mã VietQR để chuyển khoản. Chỉ bấm Đã thu tiền khi đã nhận đủ.
+            Kiểm tra số tiền trước khi thu. Có thể in hóa đơn rồi quay lại bill nếu khách khiếu nại.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col items-center gap-4 py-2">
-          <div className="w-full text-center">
-            <p className="text-sm font-medium text-slate-500">Tổng tiền</p>
-            <p className="font-mono text-4xl font-bold tabular-nums text-slate-950">
-              {formatVnd(payment.grandTotal)}
-            </p>
+        <div className="space-y-3 rounded-2xl bg-slate-950 p-5 text-white">
+          <div className="flex justify-between gap-3 text-base">
+            <span>Tiền hát ({checkout.billableHours} giờ)</span>
+            <span className="font-mono font-bold tabular-nums">{formatVnd(checkout.roomTotal)}</span>
           </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={qrSrc}
-            alt={`Mã VietQR thanh toán ${payment.roomName}`}
-            width={320}
-            height={320}
-            className="size-80 max-w-full rounded-lg bg-white"
-          />
-          <dl className="w-full space-y-1 text-sm text-slate-600">
-            <div className="flex justify-between gap-3">
-              <dt>Chủ TK</dt>
-              <dd className="text-right font-medium text-slate-950">{payment.bankAccountName}</dd>
+          <div className="flex justify-between gap-3 text-base">
+            <span>Đồ đã dùng</span>
+            <span className="font-mono font-bold tabular-nums">{formatVnd(checkout.itemsTotal)}</span>
+          </div>
+          {checkout.staffTotal > 0 ? (
+            <div className="flex justify-between gap-3 text-base">
+              <span>Phục vụ</span>
+              <span className="font-mono font-bold tabular-nums">{formatVnd(checkout.staffTotal)}</span>
             </div>
-            <div className="flex justify-between gap-3">
-              <dt>STK</dt>
-              <dd className="font-mono tabular-nums text-slate-950">{payment.bankAccountNumber}</dd>
-            </div>
-          </dl>
+          ) : null}
+          <div className="flex justify-between gap-3 border-t border-white/20 pt-3 text-2xl font-bold">
+            <span>Tổng tiền</span>
+            <span className="font-mono tabular-nums">{formatVnd(checkout.grandTotal)}</span>
+          </div>
         </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          {(
+            [
+              ["CASH", "Tiền mặt"],
+              ["QR", "QR"],
+              ["SPLIT", "Kết hợp"],
+            ] as const
+          ).map(([value, label]) => (
+            <Button
+              key={value}
+              type="button"
+              variant={method === value ? "default" : "outline"}
+              className="min-h-14 text-base font-bold"
+              onClick={() => setMethod(value)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+
+        {method === "SPLIT" ? (
+          <label className="flex flex-col gap-2 text-base font-medium">
+            Tiền mặt khách đưa
+            <Input
+              type="number"
+              min={0}
+              step={1000}
+              value={cashInput}
+              onChange={(event) => setCashInput(event.target.value)}
+              className="min-h-14 text-xl font-bold"
+            />
+            <span className="text-sm text-muted-foreground">
+              Còn chuyển khoản: {formatVnd(amounts.transfer)}
+            </span>
+          </label>
+        ) : null}
+
+        {needsQr ? (
+          bankReady ? (
+            <div className="flex flex-col items-center gap-3 rounded-xl border p-4">
+              <p className="font-mono text-2xl font-bold tabular-nums">
+                QR {formatVnd(amounts.transfer)}
+              </p>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={vietQrImageUrl(checkout, amounts.transfer)}
+                alt={`VietQR ${checkout.roomName}`}
+                width={280}
+                height={280}
+                className="size-64 max-w-full rounded-lg bg-white"
+              />
+              <p className="text-center text-sm text-slate-600">
+                {checkout.bankAccountName}
+                <br />
+                {checkout.bankAccountNumber}
+              </p>
+            </div>
+          ) : (
+            <p role="alert" className="text-base text-destructive">
+              Chưa cấu hình tài khoản ngân hàng. Vào Cài đặt hoặc chọn Tiền mặt.
+            </p>
+          )
+        ) : null}
+
+        {!splitValid ? (
+          <p role="alert" className="text-sm text-destructive">
+            Số tiền mặt phải lớn hơn 0 và nhỏ hơn tổng để kết hợp chuyển khoản.
+          </p>
+        ) : null}
 
         <DialogFooter className="flex-col gap-2 sm:flex-col">
           <Button
             type="button"
+            variant="outline"
+            className="min-h-14 w-full text-lg font-bold"
+            disabled={pending || !qrOk}
+            onClick={handlePrint}
+          >
+            In hóa đơn
+          </Button>
+          <Button
+            type="button"
             className="h-16 w-full text-2xl font-bold"
-            disabled={pending}
+            disabled={pending || !qrOk || !splitValid}
             onClick={onConfirmPaid}
           >
             {pending ? "Đang xác nhận" : "Đã thu tiền"}
           </Button>
           <Button
             type="button"
-            variant="outline"
-            className="min-h-14 w-full text-lg font-bold"
+            variant="ghost"
+            className="min-h-12 w-full text-base font-bold"
             disabled={pending}
             onClick={() => onOpenChange(false)}
           >
-            Hủy
+            Quay lại bill
           </Button>
         </DialogFooter>
       </DialogContent>

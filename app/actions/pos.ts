@@ -7,8 +7,13 @@ import {
   lineNeedsAudit,
   staffCustomerCharge,
 } from "@/lib/billing";
-import { roundMoney } from "@/lib/money";
-import type { ActionResult, PrepareCheckoutResult, StockAuditLine } from "@/lib/pos-types";
+import { billableHours, roundMoney } from "@/lib/money";
+import type {
+  ActionResult,
+  PrepareCheckoutResult,
+  ReceiptLine,
+  StockAuditLine,
+} from "@/lib/pos-types";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -226,14 +231,34 @@ export async function addInvoiceItem(
   return { ok: true };
 }
 
+async function requireAdminPin(supabase: Supabase, pinCode: string | undefined) {
+  const pin = String(pinCode ?? "").trim();
+  if (!pin) return { ok: false as const, error: "Nhập mã PIN quản lý để xóa món." };
+  const { data, error } = await supabase
+    .from("users")
+    .select("id")
+    .eq("pin_code", pin)
+    .eq("role", "ADMIN")
+    .maybeSingle();
+  if (error) return { ok: false as const, error: error.message };
+  if (!data) return { ok: false as const, error: "Sai mã PIN quản lý." };
+  return { ok: true as const };
+}
+
 export async function adjustInvoiceItem(
   invoiceId: string,
   productId: string,
   delta: number,
+  managerPin?: string,
 ): Promise<ActionResult> {
   if (delta !== 1 && delta !== -1) return { ok: false, error: "Số lượng không hợp lệ." };
 
   const supabase = await createClient();
+  if (delta < 0) {
+    const admin = await requireAdminPin(supabase, managerPin);
+    if (!admin.ok) return admin;
+  }
+
   const { data: invoice, error: invoiceError } = await activeInvoice(supabase, invoiceId);
   const invoiceFailure = fail(invoiceError, "Không đọc được hóa đơn.");
   if (invoiceFailure) return invoiceFailure;
@@ -445,14 +470,35 @@ async function computeCheckoutTotals(supabase: Supabase, invoiceId: string) {
 
   const { data: room, error: roomError } = await supabase
     .from("rooms")
-    .select("name, hourly_rate")
+    .select("name, type, hourly_rate")
     .eq("id", invoice.room_id)
     .maybeSingle();
   if (roomError) return { error: roomError.message };
   if (!room) return { error: "Không tìm thấy phòng của hóa đơn." };
 
-  const totals = await serviceTotal(supabase, invoiceId);
-  if (totals.error) return { error: totals.error.message };
+  const { data: itemRows, error: itemError } = await supabase
+    .from("invoice_items")
+    .select("consumed_qty, ordered_qty, price, products(name)")
+    .eq("invoice_id", invoiceId);
+  if (itemError) return { error: itemError.message };
+
+  const lines: ReceiptLine[] = [];
+  let itemsTotal = 0;
+  for (const item of itemRows ?? []) {
+    const qty = Math.max(0, Number(item.consumed_qty));
+    if (qty <= 0 && Number(item.ordered_qty) <= 0) continue;
+    const chargeQty = qty > 0 ? qty : Number(item.ordered_qty);
+    if (chargeQty <= 0) continue;
+    const price = Number(item.price);
+    const amount = roundMoney(chargeQty * price);
+    itemsTotal = roundMoney(itemsTotal + amount);
+    lines.push({
+      name: relatedName(item.products, "Món"),
+      qty: chargeQty,
+      price,
+      amount,
+    });
+  }
 
   const { data: bookings, error: bookingError } = await supabase
     .from("invoice_staff_bookings")
@@ -469,19 +515,27 @@ async function computeCheckoutTotals(supabase: Supabase, invoiceId: string) {
   );
 
   const end = new Date();
-  const elapsedMs = Math.max(0, end.getTime() - new Date(invoice.start_time).getTime());
-  const roomTotal = roundMoney((elapsedMs / 3_600_000) * Number(room.hourly_rate));
-  const serviceTotalAmount = roundMoney(totals.total + staffTotal);
+  const hours = billableHours(String(invoice.start_time), end.getTime());
+  const hourlyRate = Number(room.hourly_rate);
+  const roomTotal = roundMoney(hours * hourlyRate);
+  const serviceTotalAmount = roundMoney(itemsTotal + staffTotal);
   const grandTotal = roundMoney(roomTotal + serviceTotalAmount);
 
   return {
     error: null as string | null,
     invoice,
     roomName: String(room.name),
+    roomType: String(room.type),
+    startTime: String(invoice.start_time),
+    hourlyRate,
+    billableHours: hours,
     end,
     roomTotal,
+    itemsTotal,
+    staffTotal,
     serviceTotalAmount,
     grandTotal,
+    lines,
   };
 }
 
@@ -504,12 +558,6 @@ export async function prepareCheckout(
     .maybeSingle();
 
   if (settingsError) return { ok: false, error: settingsError.message };
-  if (!settings) {
-    return { ok: false, error: "Chưa có cấu hình ngân hàng. Vào Quản trị → Cài đặt." };
-  }
-  if (!String(settings.bank_account_number).trim() || !String(settings.bank_account_name).trim()) {
-    return { ok: false, error: "Chưa nhập số tài khoản hoặc tên chủ tài khoản." };
-  }
 
   const { error: saveError } = await supabase
     .from("invoices")
@@ -528,10 +576,18 @@ export async function prepareCheckout(
     ok: true,
     invoiceId,
     roomName: totals.roomName,
+    roomType: totals.roomType,
+    startTime: totals.startTime,
+    hourlyRate: totals.hourlyRate,
+    billableHours: totals.billableHours,
+    roomTotal: totals.roomTotal,
+    itemsTotal: totals.itemsTotal,
+    staffTotal: totals.staffTotal,
     grandTotal: totals.grandTotal,
-    bankBin: String(settings.bank_bin),
-    bankAccountNumber: String(settings.bank_account_number),
-    bankAccountName: String(settings.bank_account_name),
+    lines: totals.lines,
+    bankBin: String(settings?.bank_bin ?? ""),
+    bankAccountNumber: String(settings?.bank_account_number ?? ""),
+    bankAccountName: String(settings?.bank_account_name ?? ""),
   };
 }
 
